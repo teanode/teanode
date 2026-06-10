@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/op/go-logging"
 	"github.com/teanode/teanode/internal/integrations/surfaces"
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/providers"
@@ -15,6 +16,9 @@ import (
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/security"
 )
+
+// Per-package logger declaration (mulint_log).
+var log = logging.MustGetLogger("surface") //nolint:unused
 
 func init() {
 	tools.RegisterBuiltinTool(func() []tools.Tool {

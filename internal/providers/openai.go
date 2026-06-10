@@ -111,15 +111,12 @@ func (self ChatMessage) MarshalJSON() ([]byte, error) {
 		ToolCallID: self.ToolCallID,
 		Name:       self.Name,
 	}
-	switch content := self.Content.(type) {
-	case string:
-		wire.Content, _ = json.Marshal(content)
-	case []ContentPart:
-		wire.Content, _ = json.Marshal(content)
-	case nil:
-		// leave Content nil
-	default:
-		wire.Content, _ = json.Marshal(content)
+	if self.Content != nil {
+		content, err := json.Marshal(self.Content)
+		if err != nil {
+			return nil, fmt.Errorf("providers: marshaling chat message content: %w", err)
+		}
+		wire.Content = content
 	}
 	return json.Marshal(wire)
 }

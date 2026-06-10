@@ -20,6 +20,7 @@ import (
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/util/cmdexec"
 	"github.com/teanode/teanode/internal/util/commandpolicy"
+	"github.com/teanode/teanode/internal/util/textsplit"
 )
 
 const (
@@ -186,11 +187,14 @@ func (self *WorkflowTool) Execute(ctx context.Context, rawArguments string) (str
 		return "", fmt.Errorf("skills: workflow output schema validation failed: %w", err)
 	}
 
-	response, _ := json.Marshal(map[string]interface{}{
+	response, err := json.Marshal(map[string]interface{}{
 		"steps":   results,
 		"output":  mainOutput,
 		"context": contextData["steps"],
 	})
+	if err != nil {
+		return "", fmt.Errorf("skills: marshaling workflow response: %w", err)
+	}
 	return string(response), nil
 }
 
@@ -269,7 +273,11 @@ func executeActionStep(ctx context.Context, step *models.SkillAction, fullName s
 			if err := enforceWorkflowSkillShellActionPolicy(*step, contextData); err != nil {
 				return nil, err
 			}
-			workflowInput, _ := json.Marshal(contextData)
+			var workflowInput []byte
+			workflowInput, err = json.Marshal(contextData)
+			if err != nil {
+				return nil, fmt.Errorf("skills: marshaling workflow input: %w", err)
+			}
 			rawOutput, err = executeShellAction(ctx, *step, contextData, string(workflowInput))
 		case models.SkillActionTypeHTTP:
 			rawOutput, err = executeHttpAction(ctx, *step, contextData, authenticationProfiles)
@@ -426,7 +434,11 @@ func recordStepOutput(contextData map[string]interface{}, step *models.SkillActi
 	if saveAs == "" {
 		saveAs = stepName
 	}
-	stepsMap, _ := contextData["steps"].(map[string]interface{})
+	stepsMap, ok := contextData["steps"].(map[string]interface{})
+	if !ok {
+		stepsMap = map[string]interface{}{}
+		contextData["steps"] = stepsMap
+	}
 	stepsMap[saveAs] = output
 }
 
@@ -1221,12 +1233,13 @@ func validateSchemaNode(value interface{}, schema map[string]interface{}) error 
 	return nil
 }
 
-// truncate limits a string to maximumLength bytes.
+// truncate limits a string to maximumLength bytes without splitting a
+// multi-byte UTF-8 rune.
 func truncate(text string, maximumLength int) string {
 	if len(text) <= maximumLength {
 		return text
 	}
-	return text[:maximumLength] + "\n... (truncated)"
+	return textsplit.TruncateUTF8(text, maximumLength) + "\n... (truncated)"
 }
 
 func resolveSecret(ctx context.Context, name string) (string, bool) {

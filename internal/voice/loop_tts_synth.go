@@ -187,7 +187,10 @@ func synthesizeToChunks(ctx context.Context, synth providers.SynthesizeProvider,
 		return nil, err
 	}
 	defer func() { _ = response.Audio.Close() }()
-	wavData, _ := io.ReadAll(response.Audio)
+	wavData, err := io.ReadAll(response.Audio)
+	if err != nil {
+		return nil, fmt.Errorf("voice: reading batch tts audio: %w", err)
+	}
 	pcm, err := wavToPcm16Le(wavData)
 	if err != nil {
 		return nil, fmt.Errorf("voice: batch tts wav decode: %w", err)

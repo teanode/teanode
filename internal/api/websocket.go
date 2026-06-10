@@ -31,6 +31,11 @@ type MessageTransport interface {
 	Close() error
 }
 
+// webSocketWriteTimeout bounds each WebSocket write. Events are broadcast to
+// subscribers synchronously, so without a deadline a single stalled client
+// connection would block event delivery for every other subscriber.
+const webSocketWriteTimeout = 10 * time.Second
+
 // webSocketTransport wraps a gorilla/websocket.Conn as a MessageTransport.
 type webSocketTransport struct {
 	connection *websocket.Conn
@@ -44,12 +49,14 @@ func (self *webSocketTransport) ReadMessage() (int, []byte, error) {
 func (self *webSocketTransport) WriteTextMessage(data []byte) error {
 	self.writeMutex.Lock()
 	defer self.writeMutex.Unlock()
+	_ = self.connection.SetWriteDeadline(time.Now().Add(webSocketWriteTimeout))
 	return self.connection.WriteMessage(websocket.TextMessage, data)
 }
 
 func (self *webSocketTransport) WriteBinaryMessage(data []byte) error {
 	self.writeMutex.Lock()
 	defer self.writeMutex.Unlock()
+	_ = self.connection.SetWriteDeadline(time.Now().Add(webSocketWriteTimeout))
 	return self.connection.WriteMessage(websocket.BinaryMessage, data)
 }
 

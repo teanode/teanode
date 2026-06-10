@@ -85,6 +85,10 @@ func main() {
 
 	if err := app.Run(ctx, os.Args); err != nil {
 		if errors.Is(err, cmd.ErrRestart) {
+			if executablePath == "" {
+				fmt.Fprintln(os.Stderr, "restart failed: executable path could not be resolved at startup")
+				os.Exit(1)
+			}
 			fmt.Fprintln(os.Stderr, "restarting...")
 			execError := syscall.Exec(executablePath, os.Args, os.Environ())
 			fmt.Fprintf(os.Stderr, "restart failed: %v\n", execError)

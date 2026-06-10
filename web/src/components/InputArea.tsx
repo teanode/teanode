@@ -16,8 +16,17 @@ import { useAudioRecorder } from "../hooks/useAudioRecorder";
 import { parseClipboardImages } from "./inputAreaPaste";
 
 interface PendingFile {
+  id: number;
   file: File;
   previewUrl?: string;
+}
+
+let nextPendingFileId = 0;
+
+function revokePendingFilePreviews(files: PendingFile[]) {
+  files.forEach((pendingFile) => {
+    if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
+  });
 }
 
 async function uploadMedia(file: File): Promise<Attachment> {
@@ -196,20 +205,25 @@ export default function InputArea({
       element.style.height = Math.min(element.scrollHeight, 150) + "px";
     }
     setHasText(!!element.value.trim());
-    setPendingFiles([]);
+    setPendingFiles((prev) => {
+      revokePendingFilePreviews(prev);
+      return [];
+    });
   }, [draftKey]);
 
-  // Clean up preview URLs on unmount.
+  // Clean up preview URLs on unmount only — running this on every
+  // pendingFiles change would revoke URLs of files still being previewed.
+  const pendingFilesRef = useRef(pendingFiles);
+  pendingFilesRef.current = pendingFiles;
   useEffect(() => {
     return () => {
-      pendingFiles.forEach((pf) => {
-        if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
-      });
+      revokePendingFilePreviews(pendingFilesRef.current);
     };
-  }, [pendingFiles]);
+  }, []);
 
   const addFiles = useCallback((files: FileList | File[]) => {
     const newFiles: PendingFile[] = Array.from(files).map((file) => ({
+      id: nextPendingFileId++,
       file,
       previewUrl: isImageFile(file) ? URL.createObjectURL(file) : undefined,
     }));
@@ -368,7 +382,7 @@ export default function InputArea({
         <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", pb: 0.5 }}>
           {pendingFiles.map((pf, index) => (
             <Chip
-              key={index}
+              key={pf.id}
               label={pf.file.name}
               size="small"
               onDelete={() => removeFile(index)}

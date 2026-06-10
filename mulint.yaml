@@ -25,9 +25,11 @@ extra:
     - deepgram
     - frontmatter
     - loopback
+    - checkbox
     - mattermost
     - openai
     - scrollback
+    - textarea
     - thumbprint
     - webhook
 
@@ -48,5 +50,6 @@ extra:
     - STT   # Speech-To-Text (voice pipeline)
     - TS    # Timestamp (voice frame timing)
     - TTS   # Text-To-Speech (voice pipeline)
+    - UTF   # Unicode Transformation Format (text encoding)
     - VAD   # Voice Activity Detection (voice pipeline)
     - WAV   # Waveform Audio (audio encoding)

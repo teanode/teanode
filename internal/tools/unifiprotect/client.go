@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -250,9 +251,9 @@ func (self *httpClient) ensureAuthenticated(ctx context.Context) error {
 
 // doRequest executes an HTTP request with the appropriate authentication.
 func (self *httpClient) doRequest(ctx context.Context, method string, path string, body io.Reader, maxBytes int64) ([]byte, int, error) {
-	url := self.baseUrl + path
+	requestUrl := self.baseUrl + path
 
-	request, err := http.NewRequestWithContext(ctx, method, url, body)
+	request, err := http.NewRequestWithContext(ctx, method, requestUrl, body)
 	if err != nil {
 		return nil, 0, fmt.Errorf("unifiprotect: creating request: %w", err)
 	}
@@ -370,10 +371,10 @@ func (self *httpClient) GetSnapshot(ctx context.Context, cameraId string) ([]byt
 
 // getSnapshotIntegrationApi fetches a snapshot via the official integration API v1.
 func (self *httpClient) getSnapshotIntegrationApi(ctx context.Context, cameraId string) ([]byte, error) {
-	path := fmt.Sprintf("/proxy/protect/integration/v1/cameras/%s/snapshot", cameraId)
-	url := self.baseUrl + path
+	path := fmt.Sprintf("/proxy/protect/integration/v1/cameras/%s/snapshot", url.PathEscape(cameraId))
+	requestUrl := self.baseUrl + path
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestUrl, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unifiprotect: creating snapshot request: %w", err)
 	}
@@ -405,10 +406,10 @@ func (self *httpClient) getSnapshotPrivateApi(ctx context.Context, cameraId stri
 		return nil, err
 	}
 
-	path := fmt.Sprintf("/proxy/protect/api/cameras/%s/snapshot?force=true", cameraId)
-	url := self.baseUrl + path
+	path := fmt.Sprintf("/proxy/protect/api/cameras/%s/snapshot?force=true", url.PathEscape(cameraId))
+	requestUrl := self.baseUrl + path
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestUrl, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unifiprotect: creating snapshot request: %w", err)
 	}
@@ -454,7 +455,7 @@ func (self *httpClient) PatchCamera(ctx context.Context, cameraId string, payloa
 		return fmt.Errorf("unifiprotect: marshaling patch payload: %w", err)
 	}
 
-	path := fmt.Sprintf("/proxy/protect/api/cameras/%s", cameraId)
+	path := fmt.Sprintf("/proxy/protect/api/cameras/%s", url.PathEscape(cameraId))
 	_, err = self.doAuthenticatedRequest(ctx, http.MethodPatch, path, bytes.NewReader(payloadBytes), maxResponseBytes)
 	return err
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/util/slashcommands"
+	"github.com/teanode/teanode/internal/util/textsplit"
 )
 
 const maxDiscordMessageLength = 2000
@@ -77,9 +78,7 @@ func (self *discordStreamPreview) flush() {
 	if text == self.lastSentText || text == "" || self.stopped {
 		return
 	}
-	if len(text) > maxDiscordMessageLength {
-		text = text[:maxDiscordMessageLength]
-	}
+	text = textsplit.TruncateUTF8(text, maxDiscordMessageLength)
 	self.lastSentText = text
 
 	if self.messageId == "" {
@@ -390,10 +389,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 				firstChunk := finalText
 				remaining := ""
 				if len(finalText) > maxDiscordMessageLength {
-					cut := strings.LastIndex(finalText[:maxDiscordMessageLength], "\n")
-					if cut < maxDiscordMessageLength/2 {
-						cut = maxDiscordMessageLength
-					}
+					cut := textsplit.ChunkPoint(finalText, maxDiscordMessageLength)
 					firstChunk = finalText[:cut]
 					remaining = finalText[cut:]
 				}
@@ -629,10 +625,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId, chann
 		firstChunk := finalText
 		remaining := ""
 		if len(finalText) > maxDiscordMessageLength {
-			cut := strings.LastIndex(finalText[:maxDiscordMessageLength], "\n")
-			if cut < maxDiscordMessageLength/2 {
-				cut = maxDiscordMessageLength
-			}
+			cut := textsplit.ChunkPoint(finalText, maxDiscordMessageLength)
 			firstChunk = finalText[:cut]
 			remaining = finalText[cut:]
 		}
@@ -756,15 +749,8 @@ func (self *Bot) sendChunked(channelId, text string) {
 		return
 	}
 	for len(text) > 0 {
-		chunk := text
-		if len(chunk) > maxDiscordMessageLength {
-			// Try to split at a newline.
-			cut := strings.LastIndex(chunk[:maxDiscordMessageLength], "\n")
-			if cut < maxDiscordMessageLength/2 {
-				cut = maxDiscordMessageLength
-			}
-			chunk = text[:cut]
-		}
+		// Try to split at a newline, never inside a multi-byte rune.
+		chunk := text[:textsplit.ChunkPoint(text, maxDiscordMessageLength)]
 		if _, err := self.discord.ChannelMessageSend(channelId, chunk); err != nil {
 			log.Errorf("discord send error: %v", err)
 			return

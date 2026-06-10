@@ -27,6 +27,7 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 	"github.com/teanode/teanode/internal/util/sessiontracker"
 	"github.com/teanode/teanode/internal/util/slashcommands"
+	"github.com/teanode/teanode/internal/util/textsplit"
 )
 
 const maxTelegramMessageLength = 4096
@@ -100,9 +101,7 @@ func (self *telegramStreamPreview) flush() int {
 	if text == self.lastSentText || text == "" || self.stopped {
 		return 0
 	}
-	if len(text) > maxTelegramMessageLength {
-		text = text[:maxTelegramMessageLength]
-	}
+	text = textsplit.TruncateUTF8(text, maxTelegramMessageLength)
 
 	if self.messageId == 0 {
 		messageRequest := tgbotapi.NewMessage(self.chatId, text)
@@ -155,9 +154,7 @@ func (self *telegramStreamPreview) recoverMessage() {
 	if text == "" {
 		return
 	}
-	if len(text) > maxTelegramMessageLength {
-		text = text[:maxTelegramMessageLength]
-	}
+	text = textsplit.TruncateUTF8(text, maxTelegramMessageLength)
 
 	messageRequest := tgbotapi.NewMessage(self.chatId, text)
 	sent, err := self.api.Send(messageRequest)
@@ -489,10 +486,7 @@ func (self *Bot) OnEvent(eventType pubsub.EventType, payload interface{}) {
 				firstChunk := finalText
 				remaining := ""
 				if len(finalText) > maxTelegramMessageLength {
-					cut := strings.LastIndex(finalText[:maxTelegramMessageLength], "\n")
-					if cut < maxTelegramMessageLength/2 {
-						cut = maxTelegramMessageLength
-					}
+					cut := textsplit.ChunkPoint(finalText, maxTelegramMessageLength)
 					firstChunk = finalText[:cut]
 					remaining = finalText[cut:]
 				}
@@ -773,10 +767,7 @@ func (self *Bot) handleMessage(user *models.User, conversationId, agentId string
 		firstChunk := finalText
 		remaining := ""
 		if len(finalText) > maxTelegramMessageLength {
-			cut := strings.LastIndex(finalText[:maxTelegramMessageLength], "\n")
-			if cut < maxTelegramMessageLength/2 {
-				cut = maxTelegramMessageLength
-			}
+			cut := textsplit.ChunkPoint(finalText, maxTelegramMessageLength)
 			firstChunk = finalText[:cut]
 			remaining = finalText[cut:]
 		}
@@ -988,15 +979,8 @@ func (self *Bot) sendChunked(chatId int64, replyTo int, text string) {
 	}
 	first := true
 	for len(text) > 0 {
-		chunk := text
-		if len(chunk) > maxTelegramMessageLength {
-			// Try to split at a newline.
-			cut := strings.LastIndex(chunk[:maxTelegramMessageLength], "\n")
-			if cut < maxTelegramMessageLength/2 {
-				cut = maxTelegramMessageLength
-			}
-			chunk = text[:cut]
-		}
+		// Try to split at a newline, never inside a multi-byte rune.
+		chunk := text[:textsplit.ChunkPoint(text, maxTelegramMessageLength)]
 		messageRequest := tgbotapi.NewMessage(chatId, chunk)
 		messageRequest.ParseMode = "Markdown"
 		if first {

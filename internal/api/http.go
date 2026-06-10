@@ -185,12 +185,13 @@ func (self *api) handleAudioSynthesize(writer http.ResponseWriter, request *http
 		return web.Error(501, "no audio synthesis provider configured")
 	}
 
+	const maxSynthesizeBodySize = 1 << 20 // 1 MB is far beyond any reasonable TTS text
 	var parameters struct {
 		Text  string  `json:"text"`
 		Voice string  `json:"voice"`
 		Speed float64 `json:"speed"`
 	}
-	if err := json.NewDecoder(request.Body).Decode(&parameters); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(writer, request.Body, maxSynthesizeBodySize)).Decode(&parameters); err != nil {
 		return web.Error(400, "invalid JSON body: "+err.Error())
 	}
 	if parameters.Text == "" {

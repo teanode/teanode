@@ -3,7 +3,14 @@
 // actions from the WebSocket RPC layer back to the conversation runtime.
 package surfaces
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/op/go-logging"
+)
+
+// Per-package logger declaration (mulint_log).
+var log = logging.MustGetLogger("surfaces") //nolint:unused
 
 // SchemaVersion is the current surface schema version. Clients use this to
 // guard against rendering payloads they do not understand.

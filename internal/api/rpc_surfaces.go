@@ -330,7 +330,7 @@ func buildSurfaceActionMessage(surface *surfaces.Surface, action surfaces.Surfac
 	}
 
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("[UI action] %s", label))
+	fmt.Fprintf(&builder, "[UI action] %s", label)
 	if action.Value != "" {
 		builder.WriteString(": " + action.Value)
 	}
