@@ -104,19 +104,28 @@ const minimumDeferrableTools = 4
 // profile defers every non-core tool behind tool_search so the chat request
 // carries a small tool set that the model can extend on demand.
 func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
-	// A runner is reused across the turns of a conversation. Deferring again
-	// would drop the tools the model loaded on an earlier turn and force it to
-	// search for them a second time, so only defer once. Track this in a field
-	// rather than probing for the tool: a skill may register a tool of the
-	// same name, which would make the probe skip deferral entirely.
-	if self.toolsDeferred {
-		self.promptProfile = PromptProfileCompact
-		return
-	}
-
 	staticPrefixTokens := self.estimateStaticPrefixTokens(ctx)
 	profile := resolvePromptProfile(contextWindow, staticPrefixTokens)
 	self.promptProfile = profile
+
+	// A runner is reused across the turns of a conversation. Deferring again
+	// would drop the tools the model loaded on an earlier turn and force it
+	// to search for them a second time, so defer only once. Track this in a
+	// field rather than probing for tool_search, which a skill may also own.
+	if self.toolsDeferred {
+		if profile == PromptProfileFull {
+			// The window grew, or the tool set shrank, and everything fits
+			// again. Putting the definitions back only ever adds tools, so it
+			// is safe mid-conversation.
+			self.toolRegistry.LoadAll()
+			self.toolRegistry.Remove(toolsearch.ToolName)
+			self.toolsDeferred = false
+			log.Debugf("static prefix ~%d tokens now fits the %d token context window; tool definitions restored",
+				staticPrefixTokens, contextWindow)
+		}
+		return
+	}
+
 	if profile != PromptProfileCompact {
 		return
 	}
@@ -146,8 +155,14 @@ func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
 	keepLoaded := make([]string, 0, len(coreTools)+1)
 	keepLoaded = append(keepLoaded, coreTools...)
 	keepLoaded = append(keepLoaded, toolsearch.ToolName)
-	// Registering last means the real loader replaces any same-named skill
-	// tool, so the catalog the prompt advertises is always loadable.
+	// Skill tools take arbitrary names. Registering the loader over one would
+	// make a tool the user configured unreachable, so give up deferral
+	// instead and say why.
+	if self.toolRegistry.Get(toolsearch.ToolName) != nil {
+		log.Warningf("a registered tool is already named %s, so tool definitions cannot be deferred for agent %q; "+
+			"rename that tool to shrink the request for this model", toolsearch.ToolName, self.AgentID)
+		return
+	}
 	self.toolRegistry.Register(toolsearch.New(self.toolRegistry))
 	self.toolRegistry.Defer(keepLoaded)
 	self.toolsDeferred = true
@@ -158,6 +173,12 @@ func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
 // estimateStaticPrefixTokens measures what this run would spend on the system
 // prompt and tool definitions under the full profile, before any of the
 // conversation is added.
+//
+// It deliberately measures every registered tool rather than the currently
+// loaded ones. Measuring the loaded set would feed the decision back on
+// itself: once deferral shrank the request the estimate would fit the budget,
+// deferral would be undone, the estimate would exceed the budget again, and
+// the profile would flip on every turn.
 func (self *Runner) estimateStaticPrefixTokens(ctx context.Context) int {
 	_, agentName := self.resolveAgentProviderModelAndName(ctx)
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
@@ -166,9 +187,9 @@ func (self *Runner) estimateStaticPrefixTokens(ctx context.Context) int {
 		SkillPrompts: self.skillPrompts,
 		Mode:         SystemPromptModeFull,
 		Profile:      PromptProfileFull,
-		ToolNames:    self.toolRegistry.LoadedNames(),
+		ToolNames:    self.toolRegistry.Names(),
 	})
-	return estimateTokens(systemPrompt) + estimateToolDefinitionsTokens(self.toolRegistry.Definitions())
+	return estimateTokens(systemPrompt) + estimateToolDefinitionsTokens(self.toolRegistry.AllDefinitions())
 }
 
 // resolveCoreTools returns the configured core tool set, or the built-in

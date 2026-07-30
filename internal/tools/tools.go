@@ -522,6 +522,35 @@ func (self *ToolRegistry) LoadedNames() []string {
 	return loaded
 }
 
+// AllDefinitions returns every registered tool's definition in stable sorted
+// order, including deferred ones. Use it to size what the request would cost
+// without deferral; use Definitions for what the request actually carries.
+func (self *ToolRegistry) AllDefinitions() []providers.ToolDefinition {
+	if self == nil {
+		return nil
+	}
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	names := self.namesLocked()
+	definitions := make([]providers.ToolDefinition, 0, len(names))
+	for _, name := range names {
+		definitions = append(definitions, self.tools[name].Definition())
+	}
+	return definitions
+}
+
+// LoadAll clears all deferral, so every registered tool's definition goes
+// back into the request.
+func (self *ToolRegistry) LoadAll() {
+	if self == nil {
+		return
+	}
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	self.deferred = make(map[string]bool)
+	self.activated = make(map[string]bool)
+}
+
 // Definitions returns the tool definitions for the chat request in stable
 // sorted order, leaving out deferred tools that have not been activated.
 // Stable ordering is important for prompt caching: providers like Anthropic

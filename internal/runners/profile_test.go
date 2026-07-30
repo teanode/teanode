@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -293,26 +294,128 @@ func TestApplyPromptProfileDefersWhenTheAllowlistNamesToolSearch(t *testing.T) {
 	}
 }
 
-func TestApplyPromptProfileDefersDespiteASkillNamedToolSearch(t *testing.T) {
+func TestApplyPromptProfileKeepsASkillNamedToolSearch(t *testing.T) {
 	// Skill tools take arbitrary names, so a skill can occupy tool_search.
-	// That must not be mistaken for deferral having already run.
+	// Overwriting it would make a tool the user configured unreachable, so
+	// deferral gives way instead.
 	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
 
 	registry := deferrableRegistry()
-	registry.Register(&stubRegistryTool{name: toolsearch.ToolName})
+	skillTool := &stubRegistryTool{name: toolsearch.ToolName}
+	registry.Register(skillTool)
 	runner := &Runner{AgentID: "main", toolRegistry: registry}
 	runner.applyPromptProfile(ctx, smallContextWindow)
 
-	if runner.promptProfile != PromptProfileCompact {
-		t.Errorf("promptProfile = %q, want compact", runner.promptProfile)
+	if registry.Get(toolsearch.ToolName) != tools.Tool(skillTool) {
+		t.Error("the user's skill tool should survive; deferral must not overwrite it")
 	}
-	if got := len(registry.DeferredCatalog()); got != 4 {
-		t.Fatalf("deferred %d tools, want 4: a name collision must not skip deferral", got)
+	if got := len(registry.DeferredCatalog()); got != 0 {
+		t.Errorf("deferred %d tools, want none: the loader could not be registered", got)
 	}
-	// The real loader must win, otherwise the catalog it advertises is
-	// unreachable.
-	if _, ok := registry.Get(toolsearch.ToolName).(*toolsearch.Tool); !ok {
-		t.Error("the registered tool_search should be the real loader, not the skill tool")
+	if runner.toolsDeferred {
+		t.Error("toolsDeferred should stay false when the loader was not registered")
+	}
+}
+
+func TestApplyPromptProfileRestoresToolsWhenTheBudgetGrows(t *testing.T) {
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
+
+	runner := &Runner{AgentID: "main", toolRegistry: deferrableRegistry()}
+	runner.applyPromptProfile(ctx, smallContextWindow)
+	if !runner.toolsDeferred {
+		t.Fatal("the first run should defer")
+	}
+
+	// The operator raises models.contextWindow between turns.
+	runner.applyPromptProfile(ctx, largeContextWindow)
+
+	if runner.promptProfile != PromptProfileFull {
+		t.Errorf("promptProfile = %q, want full once everything fits again", runner.promptProfile)
+	}
+	if got := len(runner.toolRegistry.DeferredCatalog()); got != 0 {
+		t.Errorf("%d tools still deferred, want the definitions restored", got)
+	}
+	if runner.toolRegistry.Get(toolsearch.ToolName) != nil {
+		t.Error("tool_search should be withdrawn once there is nothing to defer")
+	}
+	if got := len(runner.toolRegistry.LoadedNames()); got != 5 {
+		t.Errorf("LoadedNames() has %d tools, want all 5 back", got)
+	}
+}
+
+// bulkyTool carries a definition the size of a real multi-action tool, so
+// that deferring it moves the prefix estimate by a meaningful amount.
+type bulkyTool struct{ name string }
+
+func (self *bulkyTool) Definition() providers.ToolDefinition {
+	properties := map[string]interface{}{}
+	for index := 0; index < 12; index++ {
+		properties[fmt.Sprintf("parameter_%02d", index)] = map[string]interface{}{
+			"type":        "string",
+			"description": strings.Repeat("a description of this parameter. ", 4),
+		}
+	}
+	return providers.ToolDefinition{
+		Type: "function",
+		Function: providers.FunctionSpec{
+			Name:        self.name,
+			Description: strings.Repeat("This tool does a great many things. ", 8),
+			Parameters:  map[string]interface{}{"type": "object", "properties": properties},
+		},
+	}
+}
+
+func (self *bulkyTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
+}
+
+func (self *bulkyTool) Execute(_ context.Context, _ string) (string, error) {
+	return "ok", nil
+}
+
+func TestApplyPromptProfileDoesNotOscillate(t *testing.T) {
+	// The prefix estimate must measure every registered tool, not just the
+	// loaded ones. Measuring the loaded set would shrink below the budget as
+	// soon as deferral took effect, undoing it, and the profile would flip on
+	// every turn.
+	//
+	// The window is picked so the two measurements straddle the budget: the
+	// full tool set is over it, the core-only set is under it. Measuring the
+	// wrong one therefore flips the profile on turn two.
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
+
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(&stubRegistryTool{name: "shell"})
+	for index := 0; index < 4; index++ {
+		registry.Register(&bulkyTool{name: fmt.Sprintf("bulky_%02d", index)})
+	}
+	runner := &Runner{AgentID: "main", toolRegistry: registry}
+
+	const straddlingContextWindow = 8000
+	allPrefix := runner.estimateStaticPrefixTokens(ctx)
+	budget := int(float64(straddlingContextWindow) * staticPrefixBudgetFraction)
+	if allPrefix <= budget {
+		t.Fatalf("test setup: full prefix %d must exceed the budget %d", allPrefix, budget)
+	}
+
+	for turn := 0; turn < 5; turn++ {
+		runner.applyPromptProfile(ctx, straddlingContextWindow)
+		if runner.promptProfile != PromptProfileCompact {
+			t.Fatalf("turn %d: promptProfile = %q, want compact on every turn", turn, runner.promptProfile)
+		}
+		if got := len(registry.DeferredCatalog()); got != 4 {
+			t.Fatalf("turn %d: deferred %d tools, want a stable 4", turn, got)
+		}
+		if turn == 0 {
+			// Confirm the straddle: with the tools deferred, measuring only
+			// the loaded set would now come in under budget.
+			loadedPrefix := estimateTokens("") + estimateToolDefinitionsTokens(registry.Definitions())
+			if loadedPrefix >= budget {
+				t.Fatalf("test setup: deferred tool definitions %d should fall under the budget %d", loadedPrefix, budget)
+			}
+		}
 	}
 }
 
