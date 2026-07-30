@@ -94,20 +94,27 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 // tool_search round cost more than the definitions they replace.
 const minimumDeferrableTools = 4
 
-// applyPromptProfile records the profile for this run and, under the compact
-// profile, defers every non-core tool behind tool_search so the chat request
+// applyPromptProfile picks the profile for this run from how much of the
+// context window the full static prefix would take, and under the compact
+// profile defers every non-core tool behind tool_search so the chat request
 // carries a small tool set that the model can extend on demand.
-func (self *Runner) applyPromptProfile(ctx context.Context, profile PromptProfile) {
-	self.promptProfile = profile
-	if profile != PromptProfileCompact {
-		return
-	}
+func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
 	// A runner is reused across the turns of a conversation. Deferring again
 	// would drop the tools the model loaded on an earlier turn and force it to
 	// search for them a second time, so only defer once.
 	if self.toolRegistry.Get(toolsearch.ToolName) != nil {
+		self.promptProfile = PromptProfileCompact
 		return
 	}
+
+	staticPrefixTokens := self.estimateStaticPrefixTokens(ctx)
+	profile := resolvePromptProfile(contextWindow, staticPrefixTokens)
+	self.promptProfile = profile
+	if profile != PromptProfileCompact {
+		return
+	}
+	log.Debugf("compact prompt profile: static prefix ~%d tokens exceeds %.0f%% of the %d token context window",
+		staticPrefixTokens, staticPrefixBudgetFraction*100, contextWindow)
 	coreTools := resolveCoreTools(ctx)
 	loadedCount := 0
 	for _, name := range coreTools {
@@ -125,6 +132,22 @@ func (self *Runner) applyPromptProfile(ctx context.Context, profile PromptProfil
 	self.toolRegistry.Defer(keepLoaded)
 	log.Debugf("compact prompt profile: %d tools loaded, %d deferred behind %s",
 		len(self.toolRegistry.LoadedNames()), len(self.toolRegistry.DeferredCatalog()), toolsearch.ToolName)
+}
+
+// estimateStaticPrefixTokens measures what this run would spend on the system
+// prompt and tool definitions under the full profile, before any of the
+// conversation is added.
+func (self *Runner) estimateStaticPrefixTokens(ctx context.Context) int {
+	_, agentName := self.resolveAgentProviderModelAndName(ctx)
+	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
+		AgentID:      self.AgentID,
+		SkillPrompts: self.skillPrompts,
+		Mode:         SystemPromptModeFull,
+		Profile:      PromptProfileFull,
+		ToolNames:    self.toolRegistry.LoadedNames(),
+	})
+	return estimateTokens(systemPrompt) + estimateToolDefinitionsTokens(self.toolRegistry.Definitions())
 }
 
 // resolveCoreTools returns the configured core tool set, or the built-in
@@ -321,7 +344,7 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 	var responseModelName string
 	var stopReason string
 	contextWindow := self.resolveContextWindow(ctx)
-	self.applyPromptProfile(ctx, resolvePromptProfile(contextWindow))
+	self.applyPromptProfile(ctx, contextWindow)
 
 	var contextRetries int
 	for round := 0; round < 250; round++ {

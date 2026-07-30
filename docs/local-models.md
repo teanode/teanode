@@ -25,8 +25,23 @@ window the server is actually running with.
 
 ## The compact prompt profile
 
-At or below a 32,000 token context window, a run switches from the `full`
-prompt profile to `compact`:
+A run switches from the `full` prompt profile to `compact` when the static
+prefix would take more than 25% of the context window. The prefix is paid on
+every request and conversation compaction cannot reclaim it, so the remaining
+75% is what the conversation actually has to work with.
+
+This is a budget rather than a fixed context-window cutoff because the prefix
+varies by an order of magnitude with how many tools are registered. A node
+running a handful of tools stays on the full profile at 32k; a node with every
+integration enabled goes compact well above it. Two examples:
+
+| Context window | Registered tools | Prefix | Share | Profile |
+| --- | --- | --- | --- | --- |
+| 40,000 | 53 | ~22,200 | 55% | compact |
+| 40,000 | ~10 | ~5,000 | 13% | full |
+| 200,000 | 53 | ~22,200 | 11% | full |
+
+Under the compact profile:
 
 | | full | compact |
 | --- | --- | --- |
@@ -36,7 +51,9 @@ prompt profile to `compact`:
 | AGENT.md / USER.md / ONBOARDING.md / SKILLS.md | 8,000 characters each | 2,000 characters each |
 
 On a node with 53 tools registered, that is about 22,200 tokens of prefix under
-`full` and about 3,400 under `compact`.
+`full` and about 3,400 under `compact`. Check which profile a run picked with
+debug logging — the compact path logs the measured prefix and the window it was
+compared against.
 
 Nothing is disabled by the compact profile. Every tool stays callable and every
 prompt section still covers its feature — charts, artifacts, and suggested

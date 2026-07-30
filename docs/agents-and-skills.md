@@ -31,8 +31,9 @@ Important files in `internal/runners`:
   - Other users list.
   - Guidance sections, each emitted only when the tool it describes is
     registered for the run.
-- `profile.go` – picks the prompt profile from the model's context window.
-  Small windows get the compact profile, which shortens the guidance sections,
+- `profile.go` – picks the prompt profile by checking the measured static
+  prefix against a share of the model's context window. Going over budget
+  selects the compact profile, which shortens the guidance sections,
   drops the tool `returns` schemas, and defers non-core tool definitions behind
   `tool_search`. See `docs/local-models.md`.
 - `compact.go` – context compaction and pruning logic for long conversations.

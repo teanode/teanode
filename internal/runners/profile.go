@@ -15,11 +15,17 @@ const (
 	PromptProfileCompact PromptProfile = "compact"
 )
 
-// compactProfileContextWindow is the largest context window that still gets
-// the compact profile. Locally hosted models are typically served at 8k-32k,
-// where a ~23k token static prefix leaves no usable room; hosted models start
-// well above this.
-const compactProfileContextWindow = 32000
+// staticPrefixBudgetFraction is the share of the context window that the
+// static prefix — system prompt plus tool definitions — may take before a run
+// switches to the compact profile. The prefix is paid on every request and
+// compaction cannot reclaim it, so the rest of the window has to hold the
+// whole conversation.
+//
+// This is a budget rather than a fixed context-window cutoff because the
+// prefix varies by an order of magnitude with the number of registered tools.
+// A node with a handful of tools stays on the full profile even at 32k, while
+// a node with every integration enabled goes compact well above it.
+const staticPrefixBudgetFraction = 0.25
 
 // Workspace files are capped harder under the compact profile: four files at
 // the full cap would on their own exceed a small context window.
@@ -28,9 +34,13 @@ const (
 	compactWorkspaceFileCharacters = 2000
 )
 
-// resolvePromptProfile picks the profile for a model's context window.
-func resolvePromptProfile(contextWindow int) PromptProfile {
-	if contextWindow > 0 && contextWindow <= compactProfileContextWindow {
+// resolvePromptProfile picks the profile by checking the full-profile static
+// prefix against the share of the context window it is allowed to take.
+func resolvePromptProfile(contextWindow int, staticPrefixTokens int) PromptProfile {
+	if contextWindow <= 0 || staticPrefixTokens <= 0 {
+		return PromptProfileFull
+	}
+	if float64(staticPrefixTokens) > float64(contextWindow)*staticPrefixBudgetFraction {
 		return PromptProfileCompact
 	}
 	return PromptProfileFull

@@ -19,6 +19,14 @@ import (
 	"github.com/teanode/teanode/internal/util/ptrto"
 )
 
+// The deferral tests register stub tools whose definitions are negligible, so
+// the static prefix is essentially the system prompt (~1,400 tokens). These
+// windows put that prefix either side of the 25% budget.
+const (
+	smallContextWindow = 4000
+	largeContextWindow = 1000000
+)
+
 // stubRegistryTool is a minimal registry entry for deferral tests.
 type stubRegistryTool struct{ name string }
 
@@ -44,18 +52,29 @@ func (self *stubRegistryTool) Execute(_ context.Context, _ string) (string, erro
 
 func TestResolvePromptProfile(t *testing.T) {
 	cases := []struct {
-		contextWindow int
-		want          PromptProfile
+		name               string
+		contextWindow      int
+		staticPrefixTokens int
+		want               PromptProfile
 	}{
-		{contextWindow: 0, want: PromptProfileFull}, // unknown falls back to the default window
-		{contextWindow: 8192, want: PromptProfileCompact},
-		{contextWindow: compactProfileContextWindow, want: PromptProfileCompact},
-		{contextWindow: compactProfileContextWindow + 1, want: PromptProfileFull},
-		{contextWindow: 200000, want: PromptProfileFull},
+		{name: "unknown window", contextWindow: 0, staticPrefixTokens: 22000, want: PromptProfileFull},
+		{name: "unknown prefix", contextWindow: 8192, staticPrefixTokens: 0, want: PromptProfileFull},
+		{name: "every tool on a small window", contextWindow: 8192, staticPrefixTokens: 22000, want: PromptProfileCompact},
+		// The case that motivated the budget rule: a local model at 40k with
+		// every integration registered spends 55% of its window before the
+		// conversation starts.
+		{name: "every tool on a 40k window", contextWindow: 40000, staticPrefixTokens: 22209, want: PromptProfileCompact},
+		// A node with only a few tools has room to spare at the same window.
+		{name: "few tools on a 40k window", contextWindow: 40000, staticPrefixTokens: 5000, want: PromptProfileFull},
+		{name: "exactly at the budget", contextWindow: 40000, staticPrefixTokens: 10000, want: PromptProfileFull},
+		{name: "one token over the budget", contextWindow: 40000, staticPrefixTokens: 10001, want: PromptProfileCompact},
+		{name: "every tool on a large window", contextWindow: 200000, staticPrefixTokens: 22209, want: PromptProfileFull},
 	}
 	for _, testCase := range cases {
-		if got := resolvePromptProfile(testCase.contextWindow); got != testCase.want {
-			t.Errorf("resolvePromptProfile(%d) = %q, want %q", testCase.contextWindow, got, testCase.want)
+		got := resolvePromptProfile(testCase.contextWindow, testCase.staticPrefixTokens)
+		if got != testCase.want {
+			t.Errorf("%s: resolvePromptProfile(%d, %d) = %q, want %q",
+				testCase.name, testCase.contextWindow, testCase.staticPrefixTokens, got, testCase.want)
 		}
 	}
 }
@@ -194,7 +213,7 @@ func TestApplyPromptProfileDefersOnlyForCompact(t *testing.T) {
 	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
 
 	fullRunner := &Runner{AgentID: "main", toolRegistry: deferrableRegistry()}
-	fullRunner.applyPromptProfile(ctx, PromptProfileFull)
+	fullRunner.applyPromptProfile(ctx, largeContextWindow)
 	if got := len(fullRunner.toolRegistry.DeferredCatalog()); got != 0 {
 		t.Errorf("full profile deferred %d tools, want none", got)
 	}
@@ -203,7 +222,7 @@ func TestApplyPromptProfileDefersOnlyForCompact(t *testing.T) {
 	}
 
 	compactRunner := &Runner{AgentID: "main", toolRegistry: deferrableRegistry()}
-	compactRunner.applyPromptProfile(ctx, PromptProfileCompact)
+	compactRunner.applyPromptProfile(ctx, smallContextWindow)
 	if compactRunner.toolRegistry.Get(toolsearch.ToolName) == nil {
 		t.Fatal("compact profile should register tool_search")
 	}
@@ -220,11 +239,11 @@ func TestApplyPromptProfileKeepsActivationsAcrossTurns(t *testing.T) {
 	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
 
 	runner := &Runner{AgentID: "main", toolRegistry: deferrableRegistry()}
-	runner.applyPromptProfile(ctx, PromptProfileCompact)
+	runner.applyPromptProfile(ctx, smallContextWindow)
 	runner.toolRegistry.Activate([]string{"jobs"})
 
 	// A follow-up message in the same conversation reuses the runner.
-	runner.applyPromptProfile(ctx, PromptProfileCompact)
+	runner.applyPromptProfile(ctx, smallContextWindow)
 
 	loaded := runner.toolRegistry.LoadedNames()
 	found := false
@@ -245,7 +264,7 @@ func TestApplyPromptProfileSkipsDeferralForSmallToolSets(t *testing.T) {
 	registry.Register(&stubRegistryTool{name: "shell"})
 	registry.Register(&stubRegistryTool{name: "jobs"})
 	runner := &Runner{AgentID: "main", toolRegistry: registry}
-	runner.applyPromptProfile(ctx, PromptProfileCompact)
+	runner.applyPromptProfile(ctx, smallContextWindow)
 
 	if got := len(registry.DeferredCatalog()); got != 0 {
 		t.Errorf("deferred %d tools, want none: the catalog would cost more than it saves", got)
@@ -412,7 +431,7 @@ func (self *returningTool) Execute(_ context.Context, _ string) (string, error) 
 }
 
 func TestRunSendsEveryToolForALargeContextWindow(t *testing.T) {
-	request := runWithContextWindow(t, 200000, "large-window")
+	request := runWithContextWindow(t, largeContextWindow, "large-window")
 
 	if got := len(requestToolNames(t, request)); got != 6 {
 		t.Errorf("request carried %d tools, want all 6", got)
@@ -432,7 +451,7 @@ func TestRunSendsEveryToolForALargeContextWindow(t *testing.T) {
 }
 
 func TestRunDefersToolsForASmallContextWindow(t *testing.T) {
-	request := runWithContextWindow(t, 8192, "small-window")
+	request := runWithContextWindow(t, smallContextWindow, "small-window")
 
 	names := requestToolNames(t, request)
 	sort.Strings(names)
