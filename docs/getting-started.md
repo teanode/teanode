@@ -138,6 +138,7 @@ If you want to modify or extend TeaNode itself, useful docs are:
 
 - `docs/architecture.md` – top-level layout and request flow.
 - `docs/agents-and-skills.md` – how agents run and how markdown frontmatter-defined skills work.
+- `docs/local-models.md` – running against a locally hosted model with a small context window.
 - `docs/conversations.md` – how conversations are stored.
 - `docs/jobs.md` – background jobs and reminders.
 - `docs/autoacme-alpn.md` – automatic TLS certificate management (design doc).

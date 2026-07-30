@@ -29,6 +29,12 @@ Important files in `internal/runners`:
   - Skill prompts from enabled skills.
   - Project list (up to 8 projects).
   - Other users list.
+  - Guidance sections, each emitted only when the tool it describes is
+    registered for the run.
+- `profile.go` – picks the prompt profile from the model's context window.
+  Small windows get the compact profile, which shortens the guidance sections,
+  drops the tool `returns` schemas, and defers non-core tool definitions behind
+  `tool_search`. See `docs/local-models.md`.
 - `compact.go` – context compaction and pruning logic for long conversations.
 - `memory_short_term_overlay.go` – injects recent short-term memory items into the conversation context.
 - `todo_overlay.go` – injects top open TODO items and counts into the conversation context.

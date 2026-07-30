@@ -164,6 +164,7 @@ Detailed documentation is in the `docs/` directory:
 - [Getting Started](docs/getting-started.md) — installation, build, first run, configuration
 - [Architecture](docs/architecture.md) — runtime topology, package structure, startup flow
 - [Agents and Skills](docs/agents-and-skills.md) — agent runtime, skills framework, system prompt composition
+- [Local Models](docs/local-models.md) — fitting the system prompt and tools into a small context window
 - [API Reference](docs/api.md) — HTTP endpoints and WebSocket RPC methods
 - [Conversations](docs/conversations.md) — conversation storage and message persistence
 - [Jobs](docs/jobs.md) — cron scheduler and background automations
