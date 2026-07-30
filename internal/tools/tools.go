@@ -260,6 +260,8 @@ func NewEmptyToolRegistry() *ToolRegistry {
 
 // Register adds a tool to the registry.
 func (self *ToolRegistry) Register(tool Tool) {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	self.tools[tool.Definition().Function.Name] = tool
 }
 
@@ -268,14 +270,21 @@ func (self *ToolRegistry) Get(name string) Tool {
 	if self == nil {
 		return nil
 	}
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	return self.tools[name]
 }
 
 // Remove deletes a tool from the registry.
 func (self *ToolRegistry) Remove(name string) {
-	delete(self.tools, name)
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+	self.removeLocked(name)
+}
+
+// removeLocked deletes a tool. The caller holds the mutex.
+func (self *ToolRegistry) removeLocked(name string) {
+	delete(self.tools, name)
 	delete(self.deferred, name)
 	delete(self.activated, name)
 }
@@ -285,12 +294,31 @@ func (self *ToolRegistry) Names() []string {
 	if self == nil {
 		return nil
 	}
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.namesLocked()
+}
+
+// namesLocked returns all tool names in sorted order. The caller holds the
+// mutex.
+func (self *ToolRegistry) namesLocked() []string {
 	names := make([]string, 0, len(self.tools))
 	for name := range self.tools {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
+}
+
+// isLoadedLocked reports whether a tool's definition goes into the request.
+// An unregistered name is not loaded, so a caller that checks this before
+// resolving the tool cannot mistake an unknown name for an available one.
+// The caller holds the mutex.
+func (self *ToolRegistry) isLoadedLocked(name string) bool {
+	if _, registered := self.tools[name]; !registered {
+		return false
+	}
+	return !self.deferred[name] || self.activated[name]
 }
 
 // ApplyFilter removes tools not present in the allow list.
@@ -300,9 +328,11 @@ func (self *ToolRegistry) ApplyFilter(allowed []string) {
 	if len(allowed) == 0 {
 		return
 	}
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	for name := range self.tools {
 		if !allowlist.IsAllowed(name, allowed) {
-			self.Remove(name)
+			self.removeLocked(name)
 		}
 	}
 }
@@ -359,13 +389,13 @@ func (self *ToolRegistry) DeferredCatalog() []CatalogEntry {
 		return nil
 	}
 	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	names := make([]string, 0, len(self.deferred))
 	for name := range self.deferred {
 		if !self.activated[name] {
 			names = append(names, name)
 		}
 	}
-	self.mutex.Unlock()
 	sort.Strings(names)
 
 	entries := make([]CatalogEntry, 0, len(names))
@@ -410,12 +440,20 @@ func (self *ToolRegistry) BuildOverlays(ctx context.Context) []string {
 	if self == nil {
 		return nil
 	}
-	var overlays []string
-	for _, name := range self.Names() {
-		builder, ok := self.tools[name].(OverlayBuilder)
-		if !ok {
-			continue
+	// Snapshot the builders before calling any of them: BuildOverlay reads
+	// from the store, so holding the registry lock across it would block the
+	// runner for the duration of that I/O.
+	self.mutex.Lock()
+	builders := make([]OverlayBuilder, 0, len(self.tools))
+	for _, name := range self.namesLocked() {
+		if builder, ok := self.tools[name].(OverlayBuilder); ok {
+			builders = append(builders, builder)
 		}
+	}
+	self.mutex.Unlock()
+
+	var overlays []string
+	for _, builder := range builders {
 		overlay, err := builder.BuildOverlay(ctx)
 		if err != nil || overlay == "" {
 			continue
@@ -434,6 +472,8 @@ type ToolPolicyGroupInfo struct {
 // ToolActionGroups returns a map of tool name -> policy group info for the
 // settings UI, derived from each tool's PolicyGroups() declaration.
 func (self *ToolRegistry) ToolActionGroups() map[string][]ToolPolicyGroupInfo {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
 	result := make(map[string][]ToolPolicyGroupInfo, len(self.tools))
 	for name, tool := range self.tools {
 		groups := tool.PolicyGroups()
@@ -449,6 +489,19 @@ func (self *ToolRegistry) ToolActionGroups() map[string][]ToolPolicyGroupInfo {
 	return result
 }
 
+// IsLoaded reports whether a tool's full definition went into the chat
+// request, meaning the model has seen its parameter schema. A deferred tool
+// that nothing has activated returns false: it is registered and known, but
+// the model was only shown its one-line catalog entry.
+func (self *ToolRegistry) IsLoaded(name string) bool {
+	if self == nil {
+		return false
+	}
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	return self.isLoadedLocked(name)
+}
+
 // LoadedNames returns the sorted names of the tools whose full definitions go
 // into the chat request, that is every tool except the deferred ones that have
 // not been activated.
@@ -456,12 +509,12 @@ func (self *ToolRegistry) LoadedNames() []string {
 	if self == nil {
 		return nil
 	}
-	names := self.Names() // already sorted
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+	names := self.namesLocked()
 	loaded := make([]string, 0, len(names))
 	for _, name := range names {
-		if self.deferred[name] && !self.activated[name] {
+		if !self.isLoadedLocked(name) {
 			continue
 		}
 		loaded = append(loaded, name)
@@ -478,12 +531,12 @@ func (self *ToolRegistry) Definitions() []providers.ToolDefinition {
 	if self == nil {
 		return nil
 	}
-	names := self.Names() // already sorted
 	self.mutex.Lock()
 	defer self.mutex.Unlock()
+	names := self.namesLocked()
 	definitions := make([]providers.ToolDefinition, 0, len(names))
 	for _, name := range names {
-		if self.deferred[name] && !self.activated[name] {
+		if !self.isLoadedLocked(name) {
 			continue
 		}
 		definitions = append(definitions, self.tools[name].Definition())

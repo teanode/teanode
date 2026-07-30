@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/teanode/teanode/internal/models"
@@ -146,6 +148,70 @@ func TestDeferredCatalogSummarizesDescriptions(t *testing.T) {
 	}
 	if !strings.HasSuffix(summaries["long"], "...") {
 		t.Errorf("long summary = %q, want a truncation marker", summaries["long"])
+	}
+}
+
+func TestIsLoadedTracksDeferralAndActivation(t *testing.T) {
+	registry := newTestRegistry()
+	if !registry.IsLoaded("beta") {
+		t.Error("a tool is loaded until something defers it")
+	}
+
+	registry.Defer([]string{"alpha"})
+	if !registry.IsLoaded("alpha") {
+		t.Error("a core tool stays loaded")
+	}
+	if registry.IsLoaded("beta") {
+		t.Error("a deferred tool is not loaded, so the model has not seen its schema")
+	}
+
+	registry.Activate([]string{"beta"})
+	if !registry.IsLoaded("beta") {
+		t.Error("an activated tool is loaded")
+	}
+	if registry.IsLoaded("missing") {
+		t.Error("an unknown tool is not loaded")
+	}
+}
+
+// TestConcurrentAccessIsRaceFree exercises the registry the way a run does:
+// the runner reads definitions between rounds while tool_search activates
+// deferred tools from inside tool execution. Run with -race.
+func TestConcurrentAccessIsRaceFree(t *testing.T) {
+	registry := NewEmptyToolRegistry()
+	names := make([]string, 0, 32)
+	for index := 0; index < 32; index++ {
+		name := fmt.Sprintf("tool_%02d", index)
+		names = append(names, name)
+		registry.Register(&describedTool{name: name, description: "A tool."})
+	}
+	registry.Defer(names[:4])
+
+	var waitGroup sync.WaitGroup
+	for _, name := range names[4:] {
+		waitGroup.Add(1)
+		go func(toolName string) {
+			defer waitGroup.Done()
+			registry.Activate([]string{toolName})
+		}(name)
+	}
+	for index := 0; index < 16; index++ {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			registry.Definitions()
+			registry.LoadedNames()
+			registry.DeferredCatalog()
+			registry.Names()
+			registry.Get("tool_00")
+			registry.IsLoaded("tool_10")
+			registry.ToolActionGroups()
+		}()
+	}
+	waitGroup.Wait()
+
+	if got := len(registry.LoadedNames()); got != len(names) {
+		t.Errorf("LoadedNames() has %d tools, want all %d activated", got, len(names))
 	}
 }
 

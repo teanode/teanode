@@ -202,7 +202,7 @@ Memory tools (`agent_memory`, `user_memory`, `project_memory`) hold discrete dur
 
 ## Recent Projects
 
-Up to {{.ProjectLimit}} most recently touched. `PROJECT.md` is each project's canonical overview; use the `projects` tool to see the rest.
+Up to {{.ProjectLimit}} most recently touched. `PROJECT.md` is each project's canonical overview.{{if .HasTool "projects"}} Use the `projects` tool to see the rest.{{end}}
 
 {{.ProjectList}}
 {{- end}}

@@ -23,6 +23,7 @@ import (
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/tools/toolsearch"
+	"github.com/teanode/teanode/internal/util/allowlist"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -49,6 +50,7 @@ type Runner struct {
 	providerRegistry *providers.ProviderRegistry
 	toolRegistry     *tools.ToolRegistry
 	skillPrompts     string
+	allowedTools     []string // the agent's tool allow-list; empty means all tools
 	promptProfile    PromptProfile
 
 	// Mid-run message support: allows user messages to be injected while
@@ -74,7 +76,8 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 	// Discover and register remote MCP server tools before applying the agent's
 	// allow-list so they are governed by the same filtering as builtin tools.
 	mcp.RegisterConfiguredTools(ctx, toolRegistry)
-	toolRegistry.ApplyFilter(agent.GetTools())
+	allowedTools := agent.GetTools()
+	toolRegistry.ApplyFilter(allowedTools)
 	embedder := embeddings.NewEmbedder(providerRegistry)
 	return &Runner{
 		ID:               security.NewULID(),
@@ -84,6 +87,7 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 		providerRegistry: providerRegistry,
 		toolRegistry:     toolRegistry,
 		skillPrompts:     skillPrompts,
+		allowedTools:     allowedTools,
 		promptProfile:    PromptProfileFull,
 		midRunNotify:     make(chan struct{}, 1),
 	}
@@ -111,6 +115,17 @@ func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
 	profile := resolvePromptProfile(contextWindow, staticPrefixTokens)
 	self.promptProfile = profile
 	if profile != PromptProfileCompact {
+		return
+	}
+
+	// Deferral needs tool_search, and an explicit allow-list is a hard
+	// contract: never hand the agent a tool its configuration left out. Say
+	// why deferral was skipped, otherwise the agent silently keeps paying for
+	// the full tool set.
+	if !allowlist.IsAllowed(toolsearch.ToolName, self.allowedTools) {
+		log.Warningf("agent %q has a tool allow-list without %s, so its tool definitions cannot be deferred; "+
+			"add %s to the allow-list to shrink the request for this model",
+			self.AgentID, toolsearch.ToolName, toolsearch.ToolName)
 		return
 	}
 	log.Debugf("compact prompt profile: static prefix ~%d tokens exceeds %.0f%% of the %d token context window",
@@ -630,6 +645,29 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 		for _, toolCall := range toolCalls {
 			tool := self.toolRegistry.Get(toolCall.Function.Name)
 			if tool == nil {
+				continue
+			}
+
+			// A deferred tool was advertised to the model by name and summary
+			// only, so it has not seen the parameter schema and any arguments
+			// it invented are unchecked. Refuse the call, load the definition
+			// for the next round, and tell the model to retry.
+			if !self.toolRegistry.IsLoaded(toolCall.Function.Name) {
+				self.toolRegistry.Activate([]string{toolCall.Function.Name})
+				result := fmt.Sprintf(
+					"error: %s was not loaded, so its parameters were not available to you and the call was not executed. "+
+						"Its definition is now loaded — call it again with arguments that match the schema.",
+					toolCall.Function.Name)
+				log.Debugf("tool call refused, definition not loaded id=%s name=%s", toolCall.ID, toolCall.Function.Name)
+				if callbacks != nil && callbacks.OnToolResult != nil {
+					callbacks.OnToolResult(toolCall.Function.Name, result)
+				}
+				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
+				if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
+					return nil, fmt.Errorf("runners: saving deferred tool refusal: %w", err)
+				}
+				history = append(history, &toolMessage)
+				deniedCount++
 				continue
 			}
 

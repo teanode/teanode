@@ -257,6 +257,42 @@ func TestApplyPromptProfileKeepsActivationsAcrossTurns(t *testing.T) {
 	}
 }
 
+func TestApplyPromptProfileHonoursAnExplicitAllowlistWithoutToolSearch(t *testing.T) {
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
+
+	runner := &Runner{
+		AgentID:      "main",
+		toolRegistry: deferrableRegistry(),
+		allowedTools: []string{"shell", "gitlab_issues", "google_calendar", "home_assistant", "jobs"},
+	}
+	runner.applyPromptProfile(ctx, smallContextWindow)
+
+	if runner.toolRegistry.Get(toolsearch.ToolName) != nil {
+		t.Error("an explicit allow-list without tool_search should not gain tool_search")
+	}
+	if got := len(runner.toolRegistry.DeferredCatalog()); got != 0 {
+		t.Errorf("deferred %d tools, want none: deferral needs tool_search to be reachable", got)
+	}
+}
+
+func TestApplyPromptProfileDefersWhenTheAllowlistNamesToolSearch(t *testing.T) {
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
+
+	runner := &Runner{
+		AgentID:      "main",
+		toolRegistry: deferrableRegistry(),
+		allowedTools: []string{"shell", "gitlab_issues", "google_calendar", "home_assistant", "jobs", toolsearch.ToolName},
+	}
+	runner.applyPromptProfile(ctx, smallContextWindow)
+
+	if runner.toolRegistry.Get(toolsearch.ToolName) == nil {
+		t.Fatal("an allow-list naming tool_search should get it registered")
+	}
+	if got := len(runner.toolRegistry.DeferredCatalog()); got != 4 {
+		t.Errorf("deferred %d tools, want 4", got)
+	}
+}
+
 func TestApplyPromptProfileSkipsDeferralForSmallToolSets(t *testing.T) {
 	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
 
@@ -478,6 +514,114 @@ func TestRunDefersToolsForASmallContextWindow(t *testing.T) {
 		if !strings.Contains(content, deferredTool) {
 			t.Errorf("catalog should list %q", deferredTool)
 		}
+	}
+}
+
+// recordingTool reports whether it was executed.
+type recordingTool struct {
+	name     string
+	executed bool
+}
+
+func (self *recordingTool) Definition() providers.ToolDefinition {
+	return providers.ToolDefinition{
+		Type: "function",
+		Function: providers.FunctionSpec{
+			Name:        self.name,
+			Description: "A tool that records execution.",
+			Parameters:  map[string]interface{}{"type": "object"},
+		},
+	}
+}
+
+func (self *recordingTool) PolicyGroups() []tools.PolicyGroup {
+	return []tools.PolicyGroup{
+		{Group: models.ToolPolicyGroupAll, Default: models.ToolPolicyAnyone},
+	}
+}
+
+func (self *recordingTool) Execute(_ context.Context, _ string) (string, error) {
+	self.executed = true
+	return "executed", nil
+}
+
+func TestRunRefusesToExecuteADeferredToolAndLoadsItInstead(t *testing.T) {
+	// A model can name a tool it only saw as a catalog entry. Executing it
+	// would run arguments the model invented without ever seeing the schema.
+	server := mockToolCallServer("call-1", "jobs", `{"action":"delete","id":"anything"}`, "Understood.")
+	defer server.Close()
+
+	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
+
+	deferredTool := &recordingTool{name: "jobs"}
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(&stubRegistryTool{name: "shell"})
+	registry.Register(deferredTool)
+	registry.Register(toolsearch.New(registry))
+	registry.Defer([]string{"shell", toolsearch.ToolName})
+
+	runner := &Runner{
+		AgentID:          "main",
+		ConversationID:   "deferred-call",
+		providerRegistry: mockProviderRegistry(server.URL),
+		toolRegistry:     registry,
+		promptProfile:    PromptProfileCompact,
+	}
+	if _, err := runner.Run(contextWithUserAndStore("user-1", testStore.persistenceStore), RunParameters{Message: "hi"}, nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if deferredTool.executed {
+		t.Error("a deferred tool must not execute before its definition has been sent")
+	}
+	if !registry.IsLoaded("jobs") {
+		t.Error("the refused call should load the definition so the retry can succeed")
+	}
+
+	messages := loadTestConversationMessages(t, testStore.persistenceStore, "deferred-call")
+	found := false
+	for _, message := range messages {
+		if strings.Contains(conversationMessageContentText(*message), "was not loaded") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the model should be told why the call was refused")
+	}
+}
+
+func TestBuildSystemPromptGuardsTheProjectsToolReference(t *testing.T) {
+	ctx, openedStore := newSystemPromptTestContext(t, "user-1", "main")
+	if err := openedStore.Transaction(context.Background(), func(ctx context.Context, transaction store.Transaction) error {
+		_, createError := transaction.CreateProject(ctx, &models.Project{
+			ID:          "project-roadmap",
+			Name:        ptrto.Value("Roadmap"),
+			Description: ptrto.Value("Plan roadmap milestones"),
+		}, nil, nil)
+		return createError
+	}); err != nil {
+		t.Fatalf("creating project: %v", err)
+	}
+
+	withoutProjectsTool := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID:   "main",
+		Mode:      SystemPromptModeFull,
+		ToolNames: []string{"shell"},
+	})
+	if !strings.Contains(withoutProjectsTool, "Roadmap") {
+		t.Error("the recent projects list is useful context even without the projects tool")
+	}
+	if strings.Contains(withoutProjectsTool, "Use the `projects` tool") {
+		t.Error("prompt should not point at the projects tool when it is not loaded")
+	}
+
+	withProjectsTool := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		AgentID:   "main",
+		Mode:      SystemPromptModeFull,
+		ToolNames: []string{"shell", "projects"},
+	})
+	if !strings.Contains(withProjectsTool, "Use the `projects` tool") {
+		t.Error("prompt should point at the projects tool when it is loaded")
 	}
 }
 
