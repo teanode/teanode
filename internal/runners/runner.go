@@ -22,6 +22,7 @@ import (
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools/toolsearch"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -48,6 +49,7 @@ type Runner struct {
 	providerRegistry *providers.ProviderRegistry
 	toolRegistry     *tools.ToolRegistry
 	skillPrompts     string
+	promptProfile    PromptProfile
 
 	// Mid-run message support: allows user messages to be injected while
 	// the runner is executing. The coordinator appends messages; the runner
@@ -82,8 +84,77 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 		providerRegistry: providerRegistry,
 		toolRegistry:     toolRegistry,
 		skillPrompts:     skillPrompts,
+		promptProfile:    PromptProfileFull,
 		midRunNotify:     make(chan struct{}, 1),
 	}
+}
+
+// minimumDeferrableTools is the tool count below which deferral is skipped:
+// with a tool set barely larger than the core set, the catalog and the extra
+// tool_search round cost more than the definitions they replace.
+const minimumDeferrableTools = 4
+
+// applyPromptProfile records the profile for this run and, under the compact
+// profile, defers every non-core tool behind tool_search so the chat request
+// carries a small tool set that the model can extend on demand.
+func (self *Runner) applyPromptProfile(ctx context.Context, profile PromptProfile) {
+	self.promptProfile = profile
+	if profile != PromptProfileCompact {
+		return
+	}
+	// A runner is reused across the turns of a conversation. Deferring again
+	// would drop the tools the model loaded on an earlier turn and force it to
+	// search for them a second time, so only defer once.
+	if self.toolRegistry.Get(toolsearch.ToolName) != nil {
+		return
+	}
+	coreTools := resolveCoreTools(ctx)
+	loadedCount := 0
+	for _, name := range coreTools {
+		if self.toolRegistry.Get(name) != nil {
+			loadedCount++
+		}
+	}
+	if len(self.toolRegistry.Names())-loadedCount < minimumDeferrableTools {
+		return
+	}
+	keepLoaded := make([]string, 0, len(coreTools)+1)
+	keepLoaded = append(keepLoaded, coreTools...)
+	keepLoaded = append(keepLoaded, toolsearch.ToolName)
+	self.toolRegistry.Register(toolsearch.New(self.toolRegistry))
+	self.toolRegistry.Defer(keepLoaded)
+	log.Debugf("compact prompt profile: %d tools loaded, %d deferred behind %s",
+		len(self.toolRegistry.LoadedNames()), len(self.toolRegistry.DeferredCatalog()), toolsearch.ToolName)
+}
+
+// resolveCoreTools returns the configured core tool set, or the built-in
+// default when none is configured.
+func resolveCoreTools(ctx context.Context) []string {
+	var configuration *models.Configuration
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		var err error
+		configuration, err = transaction.GetConfiguration(ctx, nil)
+		return err
+	})
+	if configuration != nil && configuration.Tools != nil {
+		if configured := configuration.Tools.GetCoreTools(); len(configured) > 0 {
+			return configured
+		}
+	}
+	return tools.DefaultCoreTools
+}
+
+// stripToolReturns drops the `returns` schemas from tool definitions. The
+// field is not part of the OpenAI tool schema and the Anthropic and Gemini
+// clients already discard it, so only OpenAI-compatible endpoints pay for it —
+// which is how locally hosted models are served.
+func stripToolReturns(definitions []providers.ToolDefinition) []providers.ToolDefinition {
+	stripped := make([]providers.ToolDefinition, len(definitions))
+	for index, definition := range definitions {
+		definition.Function.Returns = nil
+		stripped[index] = definition
+	}
+	return stripped
 }
 
 // RunParameters holds the parameters for a single agent run.
@@ -250,6 +321,7 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 	var responseModelName string
 	var stopReason string
 	contextWindow := self.resolveContextWindow(ctx)
+	self.applyPromptProfile(ctx, resolvePromptProfile(contextWindow))
 
 	var contextRetries int
 	for round := 0; round < 250; round++ {
@@ -283,6 +355,9 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 
 		// Build tool definitions for the request.
 		toolDefinitions := self.toolRegistry.Definitions()
+		if self.promptProfile == PromptProfileCompact {
+			toolDefinitions = stripToolReturns(toolDefinitions)
+		}
 
 		// Tier 2: compress context if approaching the context window limit.
 		// Re-read models configuration for fresh values.
@@ -830,10 +905,13 @@ func (self *Runner) buildMessages(
 ) []providers.ChatMessage {
 	_, agentName := self.resolveAgentProviderModelAndName(ctx)
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
-		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
-		AgentID:      self.AgentID,
-		SkillPrompts: skillPrompts,
-		Mode:         systemPromptMode,
+		IdentityLine:    resolveIdentityLine(self.AgentID, agentName),
+		AgentID:         self.AgentID,
+		SkillPrompts:    skillPrompts,
+		Mode:            systemPromptMode,
+		Profile:         self.promptProfile,
+		ToolNames:       self.toolRegistry.LoadedNames(),
+		DeferredCatalog: self.toolRegistry.DeferredCatalog(),
 	})
 	messages := make([]providers.ChatMessage, 0, len(history)+1)
 	messages = append(messages, providers.ChatMessage{
