@@ -375,6 +375,44 @@ func (self *bulkyTool) Execute(_ context.Context, _ string) (string, error) {
 	return "ok", nil
 }
 
+func TestApplyPromptProfileRestoresAtTheBudgetBoundary(t *testing.T) {
+	// tool_search exists only while tools are deferred. Counting it in the
+	// estimate would make the undeferred state look more expensive than it is
+	// and strand the run in the compact profile inside a narrow band just
+	// above the real cost.
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
+
+	registry := tools.NewEmptyToolRegistry()
+	registry.Register(&stubRegistryTool{name: "shell"})
+	for index := 0; index < 4; index++ {
+		registry.Register(&bulkyTool{name: fmt.Sprintf("bulky_%02d", index)})
+	}
+	runner := &Runner{AgentID: "main", toolRegistry: registry}
+
+	// Measure before deferral, while tool_search is genuinely absent, so the
+	// reference does not depend on the behaviour under test.
+	realPrefix := runner.estimateStaticPrefixTokens(ctx)
+
+	runner.applyPromptProfile(ctx, smallContextWindow)
+	if !runner.toolsDeferred {
+		t.Fatal("the first run should defer")
+	}
+
+	// Pick a window whose budget clears the real prefix by a hair — less than
+	// the cost of tool_search, so counting it would keep the run compact.
+	boundaryWindow := int(float64(realPrefix+8) / staticPrefixBudgetFraction)
+
+	runner.applyPromptProfile(ctx, boundaryWindow)
+
+	if runner.promptProfile != PromptProfileFull {
+		t.Errorf("promptProfile = %q, want full: the real tool set fits the %d token window",
+			runner.promptProfile, boundaryWindow)
+	}
+	if got := len(registry.DeferredCatalog()); got != 0 {
+		t.Errorf("%d tools still deferred, want them restored", got)
+	}
+}
+
 func TestApplyPromptProfileDoesNotOscillate(t *testing.T) {
 	// The prefix estimate must measure every registered tool, not just the
 	// loaded ones. Measuring the loaded set would shrink below the budget as

@@ -179,7 +179,18 @@ func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
 // itself: once deferral shrank the request the estimate would fit the budget,
 // deferral would be undone, the estimate would exceed the budget again, and
 // the profile would flip on every turn.
+//
+// tool_search is left out for the same reason. It exists only while tools are
+// deferred, so counting it would make the undeferred state look more
+// expensive than it is and could hold a run in the compact profile that the
+// full one would now fit.
 func (self *Runner) estimateStaticPrefixTokens(ctx context.Context) int {
+	names := make([]string, 0, len(self.toolRegistry.Names()))
+	for _, name := range self.toolRegistry.Names() {
+		if name != toolsearch.ToolName {
+			names = append(names, name)
+		}
+	}
 	_, agentName := self.resolveAgentProviderModelAndName(ctx)
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
 		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
@@ -187,9 +198,16 @@ func (self *Runner) estimateStaticPrefixTokens(ctx context.Context) int {
 		SkillPrompts: self.skillPrompts,
 		Mode:         SystemPromptModeFull,
 		Profile:      PromptProfileFull,
-		ToolNames:    self.toolRegistry.Names(),
+		ToolNames:    names,
 	})
-	return estimateTokens(systemPrompt) + estimateToolDefinitionsTokens(self.toolRegistry.AllDefinitions())
+
+	definitions := make([]providers.ToolDefinition, 0, len(names))
+	for _, definition := range self.toolRegistry.AllDefinitions() {
+		if definition.Function.Name != toolsearch.ToolName {
+			definitions = append(definitions, definition)
+		}
+	}
+	return estimateTokens(systemPrompt) + estimateToolDefinitionsTokens(definitions)
 }
 
 // resolveCoreTools returns the configured core tool set, or the built-in
