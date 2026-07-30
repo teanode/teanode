@@ -293,6 +293,29 @@ func TestApplyPromptProfileDefersWhenTheAllowlistNamesToolSearch(t *testing.T) {
 	}
 }
 
+func TestApplyPromptProfileDefersDespiteASkillNamedToolSearch(t *testing.T) {
+	// Skill tools take arbitrary names, so a skill can occupy tool_search.
+	// That must not be mistaken for deferral having already run.
+	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
+
+	registry := deferrableRegistry()
+	registry.Register(&stubRegistryTool{name: toolsearch.ToolName})
+	runner := &Runner{AgentID: "main", toolRegistry: registry}
+	runner.applyPromptProfile(ctx, smallContextWindow)
+
+	if runner.promptProfile != PromptProfileCompact {
+		t.Errorf("promptProfile = %q, want compact", runner.promptProfile)
+	}
+	if got := len(registry.DeferredCatalog()); got != 4 {
+		t.Fatalf("deferred %d tools, want 4: a name collision must not skip deferral", got)
+	}
+	// The real loader must win, otherwise the catalog it advertises is
+	// unreachable.
+	if _, ok := registry.Get(toolsearch.ToolName).(*toolsearch.Tool); !ok {
+		t.Error("the registered tool_search should be the real loader, not the skill tool")
+	}
+}
+
 func TestApplyPromptProfileSkipsDeferralForSmallToolSets(t *testing.T) {
 	ctx, _ := newSystemPromptTestContext(t, "user-1", "main")
 
@@ -341,6 +364,14 @@ func capturingMockServer(t *testing.T, requests *[]map[string]interface{}) *http
 	t.Helper()
 	inner := mockOpenAIServer("ok")
 	t.Cleanup(inner.Close)
+	return recordingProxy(t, inner, requests)
+}
+
+// recordingProxy forwards to an existing mock provider while decoding and
+// recording every request body, so a test can assert on what was actually
+// sent round by round.
+func recordingProxy(t *testing.T, inner *httptest.Server, requests *[]map[string]interface{}) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, err := io.ReadAll(request.Body)
 		if err != nil {
@@ -548,7 +579,10 @@ func (self *recordingTool) Execute(_ context.Context, _ string) (string, error) 
 func TestRunRefusesToExecuteADeferredToolAndLoadsItInstead(t *testing.T) {
 	// A model can name a tool it only saw as a catalog entry. Executing it
 	// would run arguments the model invented without ever seeing the schema.
-	server := mockToolCallServer("call-1", "jobs", `{"action":"delete","id":"anything"}`, "Understood.")
+	var requests []map[string]interface{}
+	inner := mockToolCallServer("call-1", "jobs", `{"action":"delete","id":"anything"}`, "Understood.")
+	defer inner.Close()
+	server := recordingProxy(t, inner, &requests)
 	defer server.Close()
 
 	testStore := newTestConversationStore(t, "user-1", "main", "mock:mock-model")
@@ -587,6 +621,28 @@ func TestRunRefusesToExecuteADeferredToolAndLoadsItInstead(t *testing.T) {
 	}
 	if !found {
 		t.Error("the model should be told why the call was refused")
+	}
+
+	// The refusal is only useful if the retry can succeed, so the round after
+	// it must actually carry the schema the first call was missing.
+	if len(requests) < 2 {
+		t.Fatalf("provider saw %d requests, want a second round after the refusal", len(requests))
+	}
+	firstRoundTools := requestToolNames(t, requests[0])
+	for _, name := range firstRoundTools {
+		if name == "jobs" {
+			t.Error("the first request must not carry the deferred tool's definition")
+		}
+	}
+	secondRoundTools := requestToolNames(t, requests[1])
+	carriesJobs := false
+	for _, name := range secondRoundTools {
+		if name == "jobs" {
+			carriesJobs = true
+		}
+	}
+	if !carriesJobs {
+		t.Errorf("the retry request carried tools %v, want the now-activated jobs definition", secondRoundTools)
 	}
 }
 

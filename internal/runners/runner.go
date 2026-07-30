@@ -52,6 +52,7 @@ type Runner struct {
 	skillPrompts     string
 	allowedTools     []string // the agent's tool allow-list; empty means all tools
 	promptProfile    PromptProfile
+	toolsDeferred    bool // whether this runner has already deferred its tool set
 
 	// Mid-run message support: allows user messages to be injected while
 	// the runner is executing. The coordinator appends messages; the runner
@@ -105,8 +106,10 @@ const minimumDeferrableTools = 4
 func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
 	// A runner is reused across the turns of a conversation. Deferring again
 	// would drop the tools the model loaded on an earlier turn and force it to
-	// search for them a second time, so only defer once.
-	if self.toolRegistry.Get(toolsearch.ToolName) != nil {
+	// search for them a second time, so only defer once. Track this in a field
+	// rather than probing for the tool: a skill may register a tool of the
+	// same name, which would make the probe skip deferral entirely.
+	if self.toolsDeferred {
 		self.promptProfile = PromptProfileCompact
 		return
 	}
@@ -143,8 +146,11 @@ func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
 	keepLoaded := make([]string, 0, len(coreTools)+1)
 	keepLoaded = append(keepLoaded, coreTools...)
 	keepLoaded = append(keepLoaded, toolsearch.ToolName)
+	// Registering last means the real loader replaces any same-named skill
+	// tool, so the catalog the prompt advertises is always loadable.
 	self.toolRegistry.Register(toolsearch.New(self.toolRegistry))
 	self.toolRegistry.Defer(keepLoaded)
+	self.toolsDeferred = true
 	log.Debugf("compact prompt profile: %d tools loaded, %d deferred behind %s",
 		len(self.toolRegistry.LoadedNames()), len(self.toolRegistry.DeferredCatalog()), toolsearch.ToolName)
 }
