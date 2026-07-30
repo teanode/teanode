@@ -75,9 +75,28 @@ keyword. The loaded tool's full definition appears in the next request, and the
 model calls it on the following turn. One `tool_search` call loads at most five
 tools, so a broad query cannot undo the saving.
 
-Deferral is skipped when the agent's tool allowlist has already cut the tool set
-down to roughly the core set — at that point the catalog and the extra round
-cost more than the definitions they replace.
+A model that skips the search and calls a deferred tool straight from the
+catalog does not get it executed: it never saw the parameter schema, so the
+arguments are unchecked. The call is refused, the definition is loaded, and the
+model is told to retry — costing one round rather than running a tool on
+invented arguments.
+
+The profile is re-checked every turn. Raise `models.contextWindow` mid-
+conversation and the withheld definitions come back on the next message.
+
+### When deferral is skipped
+
+Three cases leave a run on the full tool set. Each logs why, so none of them
+fail silently:
+
+- The agent's tool allowlist has already cut the tool set down to roughly the
+  core set. The catalog and the extra round would cost more than the
+  definitions they replace.
+- The agent has an explicit tool allowlist that does not name `tool_search`.
+  An allowlist is a hard contract, so the run will not quietly hand the agent
+  a tool the list left out — add `tool_search` to the list to get deferral.
+- Some other tool, typically from a skill, is already registered under the
+  name `tool_search`. Your tool keeps the name; deferral gives way.
 
 ### Choosing the core tools
 
