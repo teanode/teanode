@@ -14,6 +14,7 @@ import (
 	"github.com/teanode/teanode/internal/models"
 	"github.com/teanode/teanode/internal/prompts"
 	"github.com/teanode/teanode/internal/store"
+	"github.com/teanode/teanode/internal/tools"
 	"github.com/teanode/teanode/internal/version"
 )
 
@@ -28,8 +29,17 @@ const (
 )
 
 type systemPromptData struct {
-	IdentityLine            string
-	MinimalMode             bool
+	IdentityLine string
+	MinimalMode  bool
+	// Brief selects the short form of every guidance section. It is set for
+	// subagents (minimal mode) and for small-context models (compact profile).
+	Brief bool
+	// ToolNames holds the tools registered for this run, so that guidance for
+	// a tool is only emitted when the tool is actually available. A nil map
+	// means the caller did not report a tool set, and every section is kept.
+	ToolNames map[string]bool
+	// ToolCatalog lists the deferred tools as "- name: summary" lines.
+	ToolCatalog             string
 	Version                 string
 	CurrentUserID           string
 	CurrentUserRole         string
@@ -58,6 +68,39 @@ type buildSystemPromptParameters struct {
 	ProjectList  string
 	SkillPrompts string
 	Mode         SystemPromptMode
+	Profile      PromptProfile
+	// ToolNames are the tools registered for this run. Leave nil to keep
+	// every tool-specific section.
+	ToolNames []string
+	// DeferredCatalog lists tools the model must load before calling.
+	DeferredCatalog []tools.CatalogEntry
+}
+
+// HasTool reports whether any of the given tools is registered for this run.
+// It reports true when the caller did not supply a tool set, so that a prompt
+// built without one keeps all of its sections.
+func (self systemPromptData) HasTool(names ...string) bool {
+	if self.ToolNames == nil {
+		return true
+	}
+	for _, name := range names {
+		if self.ToolNames[name] {
+			return true
+		}
+	}
+	return false
+}
+
+// formatToolCatalog renders deferred tools as one line each.
+func formatToolCatalog(entries []tools.CatalogEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		lines = append(lines, fmt.Sprintf("- %s: %s", entry.Name, entry.Summary))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // buildSystemPrompt generates the system prompt for an agent run.
@@ -68,6 +111,10 @@ func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParamete
 		identityLine = resolveIdentityLine(parameters.AgentID, "")
 	}
 	mode := normalizeSystemPromptMode(parameters.Mode)
+	profile := parameters.Profile
+	if profile == "" {
+		profile = PromptProfileFull
+	}
 
 	if mode == SystemPromptModeNone {
 		return identityLine
@@ -101,9 +148,20 @@ func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParamete
 		homeDirectory = user.HomeDir
 	}
 
+	var toolNames map[string]bool
+	if parameters.ToolNames != nil {
+		toolNames = make(map[string]bool, len(parameters.ToolNames))
+		for _, name := range parameters.ToolNames {
+			toolNames[name] = true
+		}
+	}
+
 	data := systemPromptData{
 		IdentityLine:    identityLine,
 		MinimalMode:     mode == SystemPromptModeMinimal,
+		Brief:           mode == SystemPromptModeMinimal || profile == PromptProfileCompact,
+		ToolNames:       toolNames,
+		ToolCatalog:     formatToolCatalog(parameters.DeferredCatalog),
 		Version:         version.Version(),
 		CurrentUserID:   userId,
 		CurrentUserRole: userRole,
@@ -120,10 +178,11 @@ func buildSystemPrompt(ctx context.Context, parameters buildSystemPromptParamete
 	data.ProfileName = currentUser.GetUsername()
 	data.ProfileDescription = currentUser.GetDescription()
 	data.ProfileDescriptionBlock = formatPromptMultiline(data.ProfileDescription, "  ")
-	data.AgentContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "AGENT.md", 8000)
-	data.SkillsContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "SKILLS.md", 8000)
-	data.UserContent = loadWorkspaceFileFromStore(ctx, models.ScopeUser, userId, "USER.md", 8000)
-	data.UserOnboarding = loadWorkspaceFileFromStore(ctx, models.ScopeUser, userId, "ONBOARDING.md", 8000)
+	maxCharacters := workspaceFileCharacters(profile)
+	data.AgentContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "AGENT.md", maxCharacters)
+	data.SkillsContent = loadWorkspaceFileFromStore(ctx, models.ScopeAgent, parameters.AgentID, "SKILLS.md", maxCharacters)
+	data.UserContent = loadWorkspaceFileFromStore(ctx, models.ScopeUser, userId, "USER.md", maxCharacters)
+	data.UserOnboarding = loadWorkspaceFileFromStore(ctx, models.ScopeUser, userId, "ONBOARDING.md", maxCharacters)
 
 	var buffer bytes.Buffer
 	if err := parsedSystemPrompt.Execute(&buffer, data); err != nil {

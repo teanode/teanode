@@ -471,7 +471,7 @@ func TestBuildSystemPromptUsesAgentIdentity(t *testing.T) {
 	if !strings.Contains(prompt, "You are 'Custom Assistant' (agent: custom).") {
 		t.Error("prompt should contain agent identity suffix")
 	}
-	if !strings.Contains(prompt, "Workspace Tool") {
+	if !strings.Contains(prompt, "Memory and Workspace") {
 		t.Error("prompt should still contain tool documentation sections")
 	}
 }
@@ -545,7 +545,7 @@ func TestBuildSystemPromptIncludesUserWorkspaceFiles(t *testing.T) {
 	if !strings.Contains(prompt, "User Profile (USER.md)") || !strings.Contains(prompt, "Preferred name: Alex") {
 		t.Error("prompt should include USER.md section content")
 	}
-	if !strings.Contains(prompt, "Recall") || !strings.Contains(prompt, "memory tools first") {
+	if !strings.Contains(prompt, "Search first") || !strings.Contains(prompt, "search memory before generating from scratch") {
 		t.Error("prompt should include memory recall workflow guidance")
 	}
 	if strings.Contains(prompt, "User Long-term Memory (MEMORY.md)") {
@@ -653,7 +653,7 @@ func TestBuildSystemPromptModeMinimal(t *testing.T) {
 	if !strings.Contains(prompt, "Operating Instructions (AGENT.md)") {
 		t.Error("minimal mode should keep AGENT.md section")
 	}
-	if !strings.Contains(prompt, "Workspace Tools") {
+	if !strings.Contains(prompt, "Memory and Workspace") {
 		t.Error("minimal mode should keep workspace tool guidance")
 	}
 }

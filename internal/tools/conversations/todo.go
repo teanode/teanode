@@ -67,7 +67,7 @@ func (self *conversationTodoTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name:        "conversation_todo",
-			Description: "Manage conversation-scoped todos/tasks. Use 'list' to view, 'batch' to create/update/complete/reopen/delete one or more todos in a single call, 'prune' to remove all completed todos.",
+			Description: "Manage conversation-scoped todos/tasks, shown to the user in a live panel and not shared with subagents. Use 'list' to view, 'batch' to create/update/complete/reopen/delete one or more todos in a single call, 'prune' to remove all completed todos.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
