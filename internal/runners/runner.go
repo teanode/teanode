@@ -288,6 +288,7 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 		// Re-read models configuration for fresh values.
 		llmMessages, err = self.compressContext(
 			ctx,
+			history,
 			llmMessages,
 			toolDefinitions,
 			contextCompressionLimits{
@@ -317,7 +318,7 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 			if isContextLengthError(err) && contextRetries < maxContextRetries {
 				contextRetries++
 				log.Debugf("context length exceeded, compacting and retrying (attempt %d)", contextRetries)
-				llmMessages, compactErr := self.compressContext(ctx, llmMessages, toolDefinitions, contextCompressionLimits{
+				llmMessages, compactErr := self.compressContext(ctx, history, llmMessages, toolDefinitions, contextCompressionLimits{
 					CompressionThreshold: 0.0,
 					MinKeepMessages:      6,
 					MinKeepRecentTokens:  4000,
@@ -821,12 +822,177 @@ func (self *Runner) resolveAgentProviderModelAndName(ctx context.Context) (strin
 }
 
 // buildMessages converts conversation history into LLM messages.
-// It scans backward for the last context_summary message and skips everything before it.
+//
+// Where the verbatim transcript resumes comes from the resume point
+// compaction recorded on the last context_summary message. It is
+// emphatically NOT "everything before the summary message is dropped":
+// that message is appended at the tail while the summary usually
+// covers only a prefix, so cutting at it discards the verbatim tail
+// compaction kept and the user's latest question with it. The model
+// then has nothing to answer, replies with a tool call, and the turn
+// spins to the round cap. See summaryStartIndex.
 func (self *Runner) buildMessages(
 	ctx context.Context,
 	history []*models.ConversationMessage,
 	systemPromptMode SystemPromptMode,
 	skillPrompts string,
+) []providers.ChatMessage {
+	messages := self.assembleMessages(ctx, history, systemPromptMode, skillPrompts, summaryStartIndex)
+	// Every pass inside assembleMessages can remove messages, so
+	// whether the prompt still holds anything for the model to
+	// continue from is only knowable here, after all of them. Finding
+	// nothing but system messages, re-assemble from the whole history
+	// and let compaction re-compress on this same round: replaying
+	// costs tokens, an unanswerable prompt costs a 250-round spin.
+	//
+	// The test is "any transcript at all", not "a user message".
+	// Compaction fires because a tool loop got long, so the user's
+	// question is normally outside the kept tail and a healthy mid-loop
+	// prompt legitimately carries none.
+	if !hasTranscript(messages) {
+		messages = self.assembleMessages(ctx, history, systemPromptMode, skillPrompts, summaryTextOnly)
+	}
+
+	// Append tool-contributed overlays (best-effort, stable order).
+	ctx = ContextWithConversationHistory(ctx, history)
+	for _, overlay := range self.toolRegistry.BuildOverlays(ctx) {
+		messages = append(messages, providers.ChatMessage{
+			Role:    "system",
+			Content: overlay,
+		})
+	}
+
+	// Append voice overlay as a late system message (non-tool, context-driven).
+	if voiceOverlay := buildVoiceOverlay(ctx); voiceOverlay != "" {
+		messages = append(messages, providers.ChatMessage{
+			Role:    "system",
+			Content: voiceOverlay,
+		})
+	}
+
+	return messages
+}
+
+// startIndexResolver decides where the verbatim transcript resumes.
+// Two exist: the normal cut, and a fallback that replays everything.
+type startIndexResolver func(history []*models.ConversationMessage) (int, string)
+
+func summaryTextOnly(history []*models.ConversationMessage) (int, string) {
+	_, summaryText := summaryStartIndex(history)
+	return 0, summaryText
+}
+
+// hasTranscript reports whether the prompt carries anything beyond the
+// system prompt and the summary header.
+func hasTranscript(messages []providers.ChatMessage) bool {
+	for _, message := range messages {
+		if message.Role != "system" {
+			return true
+		}
+	}
+	return false
+}
+
+// summaryStartIndex returns the index the verbatim transcript resumes
+// at plus the most recent summary text, or (0, "") when no summary
+// message exists.
+//
+// When compaction recorded where it resumed, that point is trusted
+// as-is: everything before it is in the summary, and the recorded
+// point is already a well-formed turn boundary. When it did not record
+// one — a message written before the fields existed, or one whose
+// summarizer degraded to a few recent turns — the cut falls back to
+// guessing from the message's own position, so orphaned mid-turn
+// fragments are skipped and the latest user message is pulled back in.
+//
+// Both repairs are scoped to that fallback on purpose. Skipping
+// fragments past a recorded resume point discards the verbatim tail
+// compaction deliberately kept, and rewinding to the latest user
+// message would rewind to the first turn of a long tool loop, replay
+// every summarized message, and make compaction a no-op that
+// re-summarizes once per round.
+func summaryStartIndex(history []*models.ConversationMessage) (int, string) {
+	summaryIndex := findLastSummaryIndex(history)
+	if summaryIndex < 0 {
+		return 0, ""
+	}
+	summaryText := conversationMessageContentText(*history[summaryIndex])
+
+	if startIndex, ok := recordedResumeIndex(history, summaryIndex); ok {
+		return startIndex, summaryText
+	}
+	startIndex := skipOrphanedTurnFragments(history, summaryIndex+1)
+	return min(startIndex, latestUserMessageIndex(history)), summaryText
+}
+
+// recordedResumeIndex resolves the resume point compaction recorded on
+// the summary message. Reports false when it predates the fields, when
+// the summarizer degraded, or when the named message is no longer in
+// the history — in each case the caller has to guess instead. An empty
+// id with coverage recorded means compaction kept no tail.
+func recordedResumeIndex(history []*models.ConversationMessage, summaryIndex int) (int, bool) {
+	resumeFromMessageId, coverageRecorded := summaryResumeFrom(history[summaryIndex])
+	if !coverageRecorded {
+		return 0, false
+	}
+	if resumeFromMessageId == "" {
+		return summaryIndex + 1, true
+	}
+	for index, row := range history {
+		if row != nil && row.ID == resumeFromMessageId {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+// skipOrphanedTurnFragments walks past assistant / tool messages left
+// behind by a run that died mid-turn, stopping at the next user
+// message so the resumed prompt starts on a well-formed turn. A
+// completed assistant turn (any terminal stop reason) also stops the
+// walk. Never walks past the end: doing so returned an empty
+// transcript, which is what the incident spun on.
+func skipOrphanedTurnFragments(history []*models.ConversationMessage, startIndex int) int {
+	if startIndex >= len(history) || history[startIndex] == nil ||
+		conversationMessageRole(*history[startIndex]) == "user" {
+		return startIndex
+	}
+	for index := startIndex; index < len(history); index++ {
+		row := history[index]
+		if row == nil {
+			continue
+		}
+		if conversationMessageRole(*row) == "user" {
+			return index
+		}
+		stopReason := conversationMessageStopReason(*row)
+		if stopReason != "" && stopReason != "tool_calls" && stopReason != "context_summary" {
+			return index + 1
+		}
+	}
+	return startIndex
+}
+
+// latestUserMessageIndex returns the index of the most recent user
+// message, or len(history) when the conversation holds none.
+func latestUserMessageIndex(history []*models.ConversationMessage) int {
+	for index := len(history) - 1; index >= 0; index-- {
+		if history[index] != nil && conversationMessageRole(*history[index]) == "user" {
+			return index
+		}
+	}
+	return len(history)
+}
+
+// assembleMessages builds the system prompt, the summary header, and
+// the transcript resolved by resolveStartIndex, then applies the
+// well-formedness repairs providers require.
+func (self *Runner) assembleMessages(
+	ctx context.Context,
+	history []*models.ConversationMessage,
+	systemPromptMode SystemPromptMode,
+	skillPrompts string,
+	resolveStartIndex startIndexResolver,
 ) []providers.ChatMessage {
 	_, agentName := self.resolveAgentProviderModelAndName(ctx)
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
@@ -841,33 +1007,27 @@ func (self *Runner) buildMessages(
 		Content: systemPrompt,
 	})
 
-	// Find the last context summary and start from there.
-	startIndex := 0
-	hasSummary := false
-	if summaryIndex := findLastSummaryIndex(history); summaryIndex >= 0 {
-		hasSummary = true
+	startIndex, summaryText := resolveStartIndex(history)
+	if summaryText != "" {
 		messages = append(messages, providers.ChatMessage{
 			Role:    "system",
-			Content: prompts.PreviousConversationSummaryPrefix + conversationMessageContentText(*history[summaryIndex]),
+			Content: prompts.PreviousConversationSummaryPrefix + summaryText,
 		})
-		startIndex = summaryIndex + 1
-	}
-
-	// Skip the remainder of any in-progress run after the summary.
-	if hasSummary && startIndex < len(history) && conversationMessageRole(*history[startIndex]) != "user" {
-		for startIndex < len(history) {
-			message := history[startIndex]
-			startIndex++
-			stopReason := conversationMessageStopReason(*message)
-			if stopReason != "" && stopReason != "tool_calls" && stopReason != "context_summary" {
-				break
-			}
-		}
 	}
 
 	for _, message := range history[startIndex:] {
+		if message == nil {
+			continue
+		}
+		// The summary message now sits inside the kept range whenever
+		// it covers only a prefix. It is already rendered as the
+		// header above, so emitting it again would duplicate it.
+		if conversationMessageStopReason(*message) == "context_summary" {
+			continue
+		}
 		chatMessage := providers.ChatMessage{
-			Role: conversationMessageRole(*message),
+			Role:            conversationMessageRole(*message),
+			SourceMessageID: message.ID,
 		}
 
 		// Check for multimodal content (attachments).
@@ -903,23 +1063,11 @@ func (self *Runner) buildMessages(
 
 	// Fix interrupted tool calls.
 	messages = fixInterruptedToolCalls(messages)
-
-	// Append tool-contributed overlays (best-effort, stable order).
-	ctx = ContextWithConversationHistory(ctx, history)
-	for _, overlay := range self.toolRegistry.BuildOverlays(ctx) {
-		messages = append(messages, providers.ChatMessage{
-			Role:    "system",
-			Content: overlay,
-		})
-	}
-
-	// Append voice overlay as a late system message (non-tool, context-driven).
-	if voiceOverlay := buildVoiceOverlay(ctx); voiceOverlay != "" {
-		messages = append(messages, providers.ChatMessage{
-			Role:    "system",
-			Content: voiceOverlay,
-		})
-	}
+	// The mirror of the above: drop tool results whose assistant tool
+	// call is not in the prompt. A cut that lands between an assistant
+	// and its results leaves them behind, and every provider rejects a
+	// tool result it cannot pair.
+	messages = dropUnpairedToolResults(messages)
 
 	return messages
 }

@@ -64,12 +64,19 @@ type ImageURLPart struct {
 
 // ChatMessage is a single message in the conversation.
 // Content can be a string (text-only) or []ContentPart (multimodal).
+//
+// SourceMessageID is runner bookkeeping and never reaches a provider:
+// it carries the conversation message a prompt entry was built from,
+// so compaction can record which rows it left verbatim. Synthetic
+// entries (system prompt, summary header, repaired tool results)
+// leave it empty.
 type ChatMessage struct {
-	Role       string      `json:"role"`
-	Content    interface{} `json:"-"` // string or []ContentPart; custom marshaling below
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
-	Name       string      `json:"name,omitempty"`
+	Role            string      `json:"role"`
+	Content         interface{} `json:"-"` // string or []ContentPart; custom marshaling below
+	ToolCalls       []ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID      string      `json:"tool_call_id,omitempty"`
+	Name            string      `json:"name,omitempty"`
+	SourceMessageID string      `json:"-"`
 }
 
 // ContentText returns the text content of a message as a plain string.
