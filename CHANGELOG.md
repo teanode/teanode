@@ -4,6 +4,12 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.7.2] - 2026-08-25
+
+### Fixed
+
+- A conversation no longer loses the user's question when its context is compacted mid-turn, which left the agent calling tools in a loop without ever answering. (#68)
+
 ## [0.7.1] - 2026-06-10
 
 ### Fixed
