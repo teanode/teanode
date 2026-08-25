@@ -4,6 +4,16 @@ All notable changes to TeaNode will be documented in this file.
 
 The format is based loosely on Keep a Changelog, and versions are recorded using repository tags.
 
+## [0.8.0] - 2026-08-25
+
+### Added
+
+- A run whose system prompt and tool definitions would take more than a quarter of the model's context window now switches to a compact prompt profile: shorter guidance, the non-standard tool `returns` schemas dropped, and non-core tool definitions held back behind a new `tool_search` tool that loads them on demand. On a 53-tool node at a 40k context window this cuts the per-request prefix from about 22,200 tokens to 3,400, leaving 36,800 for the conversation instead of 18,800. Driven by `models.contextWindow`; tune the always-loaded set with `tools.coreTools`. See `docs/local-models.md`. (#67)
+
+### Changed
+
+- System prompt sections that documented a tool are now emitted only when that tool is registered for the run, and the sections that merely restated tool descriptions were removed, making the prompt about 38% shorter for every model. (#67)
+
 ## [0.7.2] - 2026-08-25
 
 ### Fixed
