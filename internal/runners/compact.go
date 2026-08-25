@@ -19,6 +19,19 @@ const defaultSummaryOversizedMessageTokens = 8000
 const defaultHardClearToolMultiplier = 4
 const defaultHardClearedToolPlaceholder = "[Old tool result content cleared due to context limits]"
 
+// Metadata fields on a persisted context_summary message.
+// resumeFromMessage names the oldest message left verbatim and
+// coverageRecorded says the writer knew — see summarizeAndPersist.
+const summaryMetadataKey = "summary"
+const resumeFromMessageMetadataKey = "resumeFromMessageId"
+const coverageRecordedMetadataKey = "coverageRecorded"
+
+// compactToolMinKeepMessages sizes the verbatim tail the model-invoked
+// compact tool leaves behind. Keep it small: the tool exists to
+// compact aggressively. Never keep zero, though. The calling turn
+// needs a message for its own tool result to pair against.
+const compactToolMinKeepMessages = 2
+
 type criticalFacts struct {
 	Decisions       []string `json:"decisions"`
 	Todos           []string `json:"todos"`
@@ -236,6 +249,108 @@ func expandKeepBoundaryForRecentTokens(messages []providers.ChatMessage, keepInd
 		keptTokens += estimateMessageTokens(messages[keepIndex])
 	}
 	return keepIndex
+}
+
+// findResumeFromMessageId returns the id of the oldest history message
+// that compaction left verbatim, or "" when it kept nothing.
+//
+// It names the start of the kept tail rather than the end of the
+// summarized prefix. Those are different questions: the prefix is only
+// a prefix in prompt order, and on a re-compaction or a context-length
+// retry the prompt already begins partway into the history, so no
+// prefix of history is covered at all. The kept tail is a plain set
+// membership test against history, and it is exactly what the next
+// round needs to know.
+func findResumeFromMessageId(history []*models.ConversationMessage, kept []providers.ChatMessage) string {
+	keptIds := make(map[string]struct{}, len(kept))
+	for _, message := range kept {
+		if message.SourceMessageID != "" {
+			keptIds[message.SourceMessageID] = struct{}{}
+		}
+	}
+	if len(keptIds) == 0 {
+		return ""
+	}
+	for _, row := range history {
+		if row == nil {
+			continue
+		}
+		if _, ok := keptIds[row.ID]; ok {
+			return row.ID
+		}
+	}
+	return ""
+}
+
+// summaryResumeFrom reads the resume point off a persisted summary
+// message: the id of the oldest message left verbatim, and whether the
+// writer recorded a coverage at all. A message written before the
+// fields existed, or one whose summarizer degraded, reports false and
+// the prompt builder falls back to guessing from its position. An
+// empty id with recorded=true means compaction kept nothing.
+func summaryResumeFrom(row *models.ConversationMessage) (string, bool) {
+	if row == nil || len(row.Metadata) == 0 {
+		return "", false
+	}
+	// Read through the same constants the write side uses. A struct
+	// tag cannot name a constant, so a rename would otherwise turn
+	// every persisted message into a legacy one with no compile error.
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
+		return "", false
+	}
+	coverageRecorded, _ := metadata[coverageRecordedMetadataKey].(bool)
+	resumeFromMessageId, _ := metadata[resumeFromMessageMetadataKey].(string)
+	return resumeFromMessageId, coverageRecorded
+}
+
+// splitForCompaction divides a built prompt into the prefix a
+// summarizer should read and the tail to keep verbatim. An empty
+// prefix means there is nothing worth summarizing.
+func splitForCompaction(messages []providers.ChatMessage, minKeepMessages int) ([]providers.ChatMessage, []providers.ChatMessage) {
+	if len(messages) < 2 {
+		return nil, nil
+	}
+	boundary := computeKeepBoundary(messages, contextCompressionLimits{MinKeepMessages: minKeepMessages})
+	return messages[1:boundary], messages[boundary:]
+}
+
+// computeKeepBoundary picks the index the verbatim tail starts at: the
+// pairing-safe boundary for MinKeepMessages, widened until the tail
+// carries MinKeepRecentTokens, then made pairing-safe again.
+//
+// That last step is what expandKeepBoundaryForRecentTokens needs and
+// does not do: it walks the boundary earlier by token count alone, so
+// it can land inside an assistant-to-tool pairing findKeepBoundary had
+// just stepped clear of, leaving the tail starting on a tool result
+// whose assistant was summarized away. findKeepBoundary only walks
+// backwards, so re-running it keeps at least as much and cannot loop.
+func computeKeepBoundary(messages []providers.ChatMessage, limits contextCompressionLimits) int {
+	keepIndex := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1
+	keepIndex = expandKeepBoundaryForRecentTokens(messages, keepIndex, limits.MinKeepRecentTokens)
+	return findKeepBoundary(messages[1:], len(messages)-keepIndex) + 1
+}
+
+// dropUnpairedToolResults removes tool messages whose tool_call_id no
+// assistant message in the prompt announced. fixInterruptedToolCalls
+// covers the opposite orphan (a tool call with no result); this covers
+// the one a history cut creates, where the assistant was summarized
+// away and its results were not.
+func dropUnpairedToolResults(messages []providers.ChatMessage) []providers.ChatMessage {
+	announced := make(map[string]struct{})
+	kept := make([]providers.ChatMessage, 0, len(messages))
+	for _, message := range messages {
+		for _, toolCall := range message.ToolCalls {
+			announced[toolCall.ID] = struct{}{}
+		}
+		if message.Role == "tool" && message.ToolCallID != "" {
+			if _, ok := announced[message.ToolCallID]; !ok {
+				continue
+			}
+		}
+		kept = append(kept, message)
+	}
+	return kept
 }
 
 // findLastSummaryIndex returns the index of the last context_summary message
@@ -534,10 +649,10 @@ func summarizeMessagesWithFallback(
 	messages []providers.ChatMessage,
 	contextWindow int,
 	focus string,
-) structuredSummary {
+) (structuredSummary, bool) {
 	fullSummary, err := summarizeMessagesInStages(ctx, provider, modelName, messages, contextWindow, focus)
 	if err == nil && fullSummary.Summary != "" {
-		return fullSummary
+		return fullSummary, false
 	}
 	log.Debugf("summary full pass failed, retrying without oversized messages: %v", err)
 
@@ -549,8 +664,10 @@ func summarizeMessagesWithFallback(
 		oversizedThreshold = 2000
 	}
 	filteredMessages := make([]providers.ChatMessage, 0, len(messages))
+	omissions := make([]string, 0, 4)
 	for _, message := range messages {
-		if estimateMessageTokens(message) > oversizedThreshold {
+		if messageTokens := estimateMessageTokens(message); messageTokens > oversizedThreshold {
+			omissions = append(omissions, describeOmittedMessage(message, messageTokens))
 			continue
 		}
 		filteredMessages = append(filteredMessages, message)
@@ -558,12 +675,53 @@ func summarizeMessagesWithFallback(
 	if len(filteredMessages) > 0 {
 		partialSummary, partialErr := summarizeMessagesInStages(ctx, provider, modelName, filteredMessages, contextWindow, focus)
 		if partialErr == nil && partialSummary.Summary != "" {
-			return partialSummary
+			// This pass skipped oversized messages but still read the
+			// rest of the prefix, so it stands in for it and records
+			// coverage. Name what it skipped, so the cut drops those
+			// messages against a summary that at least says they
+			// existed. Only the deterministic tail below does not
+			// stand in for the prefix at all.
+			partialSummary.Summary = appendOmissionNotes(partialSummary.Summary, omissions)
+			return partialSummary, false
 		}
 		log.Debugf("summary partial pass failed, falling back to deterministic summary: %v", partialErr)
 	}
 
-	return buildLastMessagesFallback(messages)
+	return buildLastMessagesFallback(messages), true
+}
+
+// describeOmittedMessage names a message the oversized filter skipped,
+// so the summary records that it existed rather than losing it.
+func describeOmittedMessage(message providers.ChatMessage, messageTokens int) string {
+	if message.Role == "tool" && message.Name != "" {
+		return fmt.Sprintf("%s result from %s (~%d tokens)", message.Role, message.Name, messageTokens)
+	}
+	return fmt.Sprintf("%s message (~%d tokens)", message.Role, messageTokens)
+}
+
+// appendOmissionNotes records the oversized messages a summarizer pass
+// never read, so a reader can tell a complete summary from one with
+// holes.
+func appendOmissionNotes(summary string, omissions []string) string {
+	if len(omissions) == 0 {
+		return summary
+	}
+	var builder strings.Builder
+	builder.WriteString(summary)
+	builder.WriteString("\n\nToo large to summarize, omitted from this summary:\n")
+	named := normalizeFactLines(omissions)
+	for _, omission := range named {
+		builder.WriteString("- ")
+		builder.WriteString(omission)
+		builder.WriteString("\n")
+	}
+	// normalizeFactLines caps its output, and these notes stand in for
+	// content the cut removes, so say how many went unnamed rather than
+	// letting the list imply it was complete.
+	if remaining := len(omissions) - len(named); remaining > 0 {
+		fmt.Fprintf(&builder, "- and %d more\n", remaining)
+	}
+	return strings.TrimRight(builder.String(), "\n")
 }
 
 // summarizeAndPersist resolves the summarizer model, summarizes the given
@@ -571,9 +729,17 @@ func summarizeMessagesWithFallback(
 // text. This is the shared core of CompactConversation and compressContext.
 func (self *Runner) summarizeAndPersist(
 	ctx context.Context,
+	history []*models.ConversationMessage,
 	messages []providers.ChatMessage,
+	kept []providers.ChatMessage,
 	contextWindow int,
 ) (string, error) {
+	// Nothing to summarize. Guarding here rather than in each caller
+	// means neither can persist a "No prior history." header and
+	// report a compaction that did not happen.
+	if len(messages) == 0 {
+		return "", nil
+	}
 	var configuration *models.Configuration
 	if err := store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
 		loadedConfiguration, err := transaction.GetConfiguration(ctx, nil)
@@ -601,20 +767,32 @@ func (self *Runner) summarizeAndPersist(
 		return "", fmt.Errorf("runners: provider does not support chat for summarization")
 	}
 
-	summaryText := formatStructuredSummary(
-		summarizeMessagesWithFallback(
-			ctx,
-			provider,
-			modelName,
-			messages,
-			contextWindow,
-			prompts.StructuredSummaryDefaultFocus,
-		),
+	summary, degraded := summarizeMessagesWithFallback(
+		ctx,
+		provider,
+		modelName,
+		messages,
+		contextWindow,
+		prompts.StructuredSummaryDefaultFocus,
 	)
+	summaryText := formatStructuredSummary(summary)
 
 	summaryMessage := NewTextMessage("system", summaryText)
 	stopReason := models.StopReason("context_summary")
 	summaryMessage.StopReason = &stopReason
+	// A degraded summary is a few recent turns, not a reading of the
+	// prefix, so it cannot stand in for what the cut would drop.
+	// Record no coverage and let the prompt builder take the cautious
+	// path.
+	metadata, err := json.Marshal(map[string]interface{}{
+		summaryMetadataKey:           true,
+		resumeFromMessageMetadataKey: findResumeFromMessageId(history, kept),
+		coverageRecordedMetadataKey:  !degraded,
+	})
+	if err != nil {
+		return "", fmt.Errorf("runners: encoding summary metadata: %w", err)
+	}
+	summaryMessage.Metadata = metadata
 	if appendError := self.appendConversationMessage(ctx, summaryMessage); appendError != nil {
 		return "", fmt.Errorf("runners: saving summary: %w", appendError)
 	}
@@ -644,7 +822,20 @@ func (self *Runner) CompactConversation(ctx context.Context) (*CompactResult, er
 	// Build messages via the same pipeline used for normal runs.
 	llmMessages := self.buildMessages(ctx, history, SystemPromptModeFull, self.skillPrompts)
 
-	summaryText, err := self.summarizeAndPersist(ctx, llmMessages, self.resolveContextWindow(ctx))
+	// Keep a small verbatim tail rather than summarizing everything.
+	// The tool runs mid-turn, so its own tool result is appended right
+	// after the summary; summarizing the whole prompt left that result
+	// with no assistant to pair against, the next prompt empty, and
+	// the round replaying the history just compacted away.
+	//
+	// Any non-empty tail is enough, and that is what makes this
+	// independent of whether the calling assistant message has landed
+	// yet: it is persisted concurrently with tool dispatch, so reading
+	// the history here may or may not see it. A message written after
+	// this point is newer than the resume point either way, so it
+	// survives the next round's cut.
+	prefix, kept := splitForCompaction(llmMessages, compactToolMinKeepMessages)
+	summaryText, err := self.summarizeAndPersist(ctx, history, prefix, kept, self.resolveContextWindow(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -678,6 +869,7 @@ func (self *Runner) resolveContextWindow(ctx context.Context) int {
 // compression threshold and, if so, summarizes older messages via an LLM call.
 func (self *Runner) compressContext(
 	ctx context.Context,
+	history []*models.ConversationMessage,
 	messages []providers.ChatMessage,
 	toolDefinitions []providers.ToolDefinition,
 	limits contextCompressionLimits,
@@ -698,8 +890,7 @@ func (self *Runner) compressContext(
 	log.Debugf("context compression triggered: estimated %d tokens, threshold %d", total, threshold)
 
 	// Find the split point.
-	keepIndex := findKeepBoundary(messages[1:], limits.MinKeepMessages) + 1
-	keepIndex = expandKeepBoundaryForRecentTokens(messages, keepIndex, limits.MinKeepRecentTokens)
+	keepIndex := computeKeepBoundary(messages, limits)
 	if keepIndex <= 1 {
 		return messages, nil
 	}
@@ -707,7 +898,7 @@ func (self *Runner) compressContext(
 	// Messages to summarize: messages[1:keepIndex] (skip system prompt at 0).
 	toSummarize := messages[1:keepIndex]
 
-	summaryText, err := self.summarizeAndPersist(ctx, toSummarize, contextWindow)
+	summaryText, err := self.summarizeAndPersist(ctx, history, toSummarize, messages[keepIndex:], contextWindow)
 	if err != nil {
 		log.Debugf("failed to persist context summary: %v", err)
 		return messages, nil
@@ -721,6 +912,9 @@ func (self *Runner) compressContext(
 		Content: prompts.PreviousConversationSummaryPrefix + summaryText,
 	})
 	compressed = append(compressed, messages[keepIndex:]...)
+	// Last line of defense: whatever the boundary did, never hand the
+	// provider a tool result whose tool call is no longer present.
+	compressed = dropUnpairedToolResults(compressed)
 
 	log.Debugf("context compressed: %d messages -> %d messages (dropped %d, kept %d)",
 		len(messages), len(compressed), len(toSummarize), len(messages)-keepIndex)
