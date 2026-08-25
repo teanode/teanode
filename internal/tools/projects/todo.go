@@ -65,7 +65,7 @@ func (self *projectTodoTool) Definition() providers.ToolDefinition {
 		Type: "function",
 		Function: providers.FunctionSpec{
 			Name:        "project_todo",
-			Description: "Manage project-scoped todos/tasks. Use 'list' to view, 'batch' to create/update/complete/reopen/delete one or more todos in a single call, 'prune' to remove all completed todos.",
+			Description: "Manage project-scoped todos/tasks, shared across the project's agents and conversations. Use 'list' to view, 'batch' to create/update/complete/reopen/delete one or more todos in a single call, 'prune' to remove all completed todos.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

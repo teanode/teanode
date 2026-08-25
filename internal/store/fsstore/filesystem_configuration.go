@@ -88,7 +88,10 @@ func configurationToModel(configuration *storeConfigurationRecord) *models.Confi
 	modelsConfiguration.Providers = &providerConfigurations
 	result.Models = modelsConfiguration
 
-	toolsConfiguration := &models.ToolsConfiguration{BraveAPIKey: ptrto.TrimmedString(configuration.Tools.BraveAPIKey)}
+	toolsConfiguration := &models.ToolsConfiguration{
+		CoreTools:   ptrto.TrimmedStrings(configuration.Tools.CoreTools),
+		BraveAPIKey: ptrto.TrimmedString(configuration.Tools.BraveAPIKey),
+	}
 	if configuration.Tools.Google != nil {
 		toolsConfiguration.Google = &models.GoogleConfiguration{
 			BinaryPath: ptrto.TrimmedString(configuration.Tools.Google.BinaryPath),
@@ -266,6 +269,7 @@ func modelToConfiguration(configuration *models.Configuration) *storeConfigurati
 		}
 	}
 	if configuration.Tools != nil {
+		result.Tools.CoreTools = sliceValue(configuration.Tools.CoreTools)
 		result.Tools.BraveAPIKey = configuration.Tools.GetBraveAPIKey()
 		if configuration.Tools.Google != nil {
 			result.Tools.Google = &storeGoogleToolRecord{

@@ -90,6 +90,10 @@ type ProviderConfiguration struct {
 }
 
 type ToolsConfiguration struct {
+	// CoreTools names the tools whose full definitions stay in every request
+	// when the rest of the tool set is deferred behind tool_search for a model
+	// with a small context window. Empty means the built-in default set.
+	CoreTools     *[]string                   `json:"coreTools,omitempty" yaml:"coreTools,omitempty"`
 	BraveAPIKey   *string                     `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
 	Google        *GoogleConfiguration        `json:"google,omitempty" yaml:"google,omitempty"`
 	GitHub        *GitHubConfiguration        `json:"gitHub,omitempty" yaml:"gitHub,omitempty"`

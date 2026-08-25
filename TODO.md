@@ -5,7 +5,7 @@
 These are the highest-impact items to tackle next, roughly in order.
 
 ### 1. Agent Tool Discovery & Self-Documentation
-- [ ] Tool search tool (let agents discover available tools by name/description search)
+- [x] Tool search tool (`tool_search` loads deferred tool definitions by name or keyword)
 - [ ] TeaNode documentation tool (let agents explore TeaNode's own docs, config schema, API surface)
 
 ### 2. Robustness & Reliability
@@ -28,7 +28,7 @@ These are the highest-impact items to tackle next, roughly in order.
 - [ ] Google Gemini provider
 - [ ] Provider failover (multiple API keys / auth profiles with fallback)
 - [ ] OAuth-based provider auth (Anthropic Pro/Max, OpenAI)
-- [ ] Per-model tool gating (enable/disable tools based on model capabilities)
+- [ ] Per-model tool gating (enable/disable tools based on model capabilities; context-window-based deferral already lands via the compact prompt profile)
 
 ### 6. Voice & Audio (next phase)
 - [ ] Streaming TTS (chunked audio playback for long responses)

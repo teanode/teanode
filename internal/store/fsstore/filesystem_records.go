@@ -64,6 +64,7 @@ type storeChannelsRecord struct {
 }
 
 type storeToolsRecord struct {
+	CoreTools     []string                   `json:"coreTools,omitempty" yaml:"coreTools,omitempty"`
 	BraveAPIKey   string                     `json:"braveApiKey,omitempty" yaml:"braveApiKey,omitempty"`
 	Google        *storeGoogleToolRecord     `json:"google,omitempty" yaml:"google,omitempty"`
 	GitHub        *storeGitHubToolRecord     `json:"gitHub,omitempty" yaml:"gitHub,omitempty"`

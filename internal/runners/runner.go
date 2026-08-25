@@ -22,6 +22,8 @@ import (
 	"github.com/teanode/teanode/internal/skills"
 	"github.com/teanode/teanode/internal/store"
 	"github.com/teanode/teanode/internal/tools"
+	"github.com/teanode/teanode/internal/tools/toolsearch"
+	"github.com/teanode/teanode/internal/util/allowlist"
 	"github.com/teanode/teanode/internal/util/deferutil"
 	"github.com/teanode/teanode/internal/util/mimetypes"
 	"github.com/teanode/teanode/internal/util/ptrto"
@@ -48,6 +50,9 @@ type Runner struct {
 	providerRegistry *providers.ProviderRegistry
 	toolRegistry     *tools.ToolRegistry
 	skillPrompts     string
+	allowedTools     []string // the agent's tool allow-list; empty means all tools
+	promptProfile    PromptProfile
+	toolsDeferred    bool // whether this runner has already deferred its tool set
 
 	// Mid-run message support: allows user messages to be injected while
 	// the runner is executing. The coordinator appends messages; the runner
@@ -72,7 +77,8 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 	// Discover and register remote MCP server tools before applying the agent's
 	// allow-list so they are governed by the same filtering as builtin tools.
 	mcp.RegisterConfiguredTools(ctx, toolRegistry)
-	toolRegistry.ApplyFilter(agent.GetTools())
+	allowedTools := agent.GetTools()
+	toolRegistry.ApplyFilter(allowedTools)
 	embedder := embeddings.NewEmbedder(providerRegistry)
 	return &Runner{
 		ID:               security.NewULID(),
@@ -82,8 +88,156 @@ func NewRunner(ctx context.Context, agentId, conversationId string, providerRegi
 		providerRegistry: providerRegistry,
 		toolRegistry:     toolRegistry,
 		skillPrompts:     skillPrompts,
+		allowedTools:     allowedTools,
+		promptProfile:    PromptProfileFull,
 		midRunNotify:     make(chan struct{}, 1),
 	}
+}
+
+// minimumDeferrableTools is the tool count below which deferral is skipped:
+// with a tool set barely larger than the core set, the catalog and the extra
+// tool_search round cost more than the definitions they replace.
+const minimumDeferrableTools = 4
+
+// applyPromptProfile picks the profile for this run from how much of the
+// context window the full static prefix would take, and under the compact
+// profile defers every non-core tool behind tool_search so the chat request
+// carries a small tool set that the model can extend on demand.
+func (self *Runner) applyPromptProfile(ctx context.Context, contextWindow int) {
+	staticPrefixTokens := self.estimateStaticPrefixTokens(ctx)
+	profile := resolvePromptProfile(contextWindow, staticPrefixTokens)
+	self.promptProfile = profile
+
+	// A runner is reused across the turns of a conversation. Deferring again
+	// would drop the tools the model loaded on an earlier turn and force it
+	// to search for them a second time, so defer only once. Track this in a
+	// field rather than probing for tool_search, which a skill may also own.
+	if self.toolsDeferred {
+		if profile == PromptProfileFull {
+			// The window grew, or the tool set shrank, and everything fits
+			// again. Putting the definitions back only ever adds tools, so it
+			// is safe mid-conversation.
+			self.toolRegistry.LoadAll()
+			self.toolRegistry.Remove(toolsearch.ToolName)
+			self.toolsDeferred = false
+			log.Debugf("static prefix ~%d tokens now fits the %d token context window; tool definitions restored",
+				staticPrefixTokens, contextWindow)
+		}
+		return
+	}
+
+	if profile != PromptProfileCompact {
+		return
+	}
+
+	// Deferral needs tool_search, and an explicit allow-list is a hard
+	// contract: never hand the agent a tool its configuration left out. Say
+	// why deferral was skipped, otherwise the agent silently keeps paying for
+	// the full tool set.
+	if !allowlist.IsAllowed(toolsearch.ToolName, self.allowedTools) {
+		log.Warningf("agent %q has a tool allow-list without %s, so its tool definitions cannot be deferred; "+
+			"add %s to the allow-list to shrink the request for this model",
+			self.AgentID, toolsearch.ToolName, toolsearch.ToolName)
+		return
+	}
+	log.Debugf("compact prompt profile: static prefix ~%d tokens exceeds %.0f%% of the %d token context window",
+		staticPrefixTokens, staticPrefixBudgetFraction*100, contextWindow)
+	coreTools := resolveCoreTools(ctx)
+	loadedCount := 0
+	for _, name := range coreTools {
+		if self.toolRegistry.Get(name) != nil {
+			loadedCount++
+		}
+	}
+	if len(self.toolRegistry.Names())-loadedCount < minimumDeferrableTools {
+		return
+	}
+	keepLoaded := make([]string, 0, len(coreTools)+1)
+	keepLoaded = append(keepLoaded, coreTools...)
+	keepLoaded = append(keepLoaded, toolsearch.ToolName)
+	// Skill tools take arbitrary names. Registering the loader over one would
+	// make a tool the user configured unreachable, so give up deferral
+	// instead and say why.
+	if self.toolRegistry.Get(toolsearch.ToolName) != nil {
+		log.Warningf("a registered tool is already named %s, so tool definitions cannot be deferred for agent %q; "+
+			"rename that tool to shrink the request for this model", toolsearch.ToolName, self.AgentID)
+		return
+	}
+	self.toolRegistry.Register(toolsearch.New(self.toolRegistry))
+	self.toolRegistry.Defer(keepLoaded)
+	self.toolsDeferred = true
+	log.Debugf("compact prompt profile: %d tools loaded, %d deferred behind %s",
+		len(self.toolRegistry.LoadedNames()), len(self.toolRegistry.DeferredCatalog()), toolsearch.ToolName)
+}
+
+// estimateStaticPrefixTokens measures what this run would spend on the system
+// prompt and tool definitions under the full profile, before any of the
+// conversation is added.
+//
+// It deliberately measures every registered tool rather than the currently
+// loaded ones. Measuring the loaded set would feed the decision back on
+// itself: once deferral shrank the request the estimate would fit the budget,
+// deferral would be undone, the estimate would exceed the budget again, and
+// the profile would flip on every turn.
+//
+// tool_search is left out for the same reason. It exists only while tools are
+// deferred, so counting it would make the undeferred state look more
+// expensive than it is and could hold a run in the compact profile that the
+// full one would now fit.
+func (self *Runner) estimateStaticPrefixTokens(ctx context.Context) int {
+	names := make([]string, 0, len(self.toolRegistry.Names()))
+	for _, name := range self.toolRegistry.Names() {
+		if name != toolsearch.ToolName {
+			names = append(names, name)
+		}
+	}
+	_, agentName := self.resolveAgentProviderModelAndName(ctx)
+	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
+		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
+		AgentID:      self.AgentID,
+		SkillPrompts: self.skillPrompts,
+		Mode:         SystemPromptModeFull,
+		Profile:      PromptProfileFull,
+		ToolNames:    names,
+	})
+
+	definitions := make([]providers.ToolDefinition, 0, len(names))
+	for _, definition := range self.toolRegistry.AllDefinitions() {
+		if definition.Function.Name != toolsearch.ToolName {
+			definitions = append(definitions, definition)
+		}
+	}
+	return estimateTokens(systemPrompt) + estimateToolDefinitionsTokens(definitions)
+}
+
+// resolveCoreTools returns the configured core tool set, or the built-in
+// default when none is configured.
+func resolveCoreTools(ctx context.Context) []string {
+	var configuration *models.Configuration
+	_ = store.StoreFromContext(ctx).Transaction(ctx, func(ctx context.Context, transaction store.Transaction) error {
+		var err error
+		configuration, err = transaction.GetConfiguration(ctx, nil)
+		return err
+	})
+	if configuration != nil && configuration.Tools != nil {
+		if configured := configuration.Tools.GetCoreTools(); len(configured) > 0 {
+			return configured
+		}
+	}
+	return tools.DefaultCoreTools
+}
+
+// stripToolReturns drops the `returns` schemas from tool definitions. The
+// field is not part of the OpenAI tool schema and the Anthropic and Gemini
+// clients already discard it, so only OpenAI-compatible endpoints pay for it —
+// which is how locally hosted models are served.
+func stripToolReturns(definitions []providers.ToolDefinition) []providers.ToolDefinition {
+	stripped := make([]providers.ToolDefinition, len(definitions))
+	for index, definition := range definitions {
+		definition.Function.Returns = nil
+		stripped[index] = definition
+	}
+	return stripped
 }
 
 // RunParameters holds the parameters for a single agent run.
@@ -250,6 +404,7 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 	var responseModelName string
 	var stopReason string
 	contextWindow := self.resolveContextWindow(ctx)
+	self.applyPromptProfile(ctx, contextWindow)
 
 	var contextRetries int
 	for round := 0; round < 250; round++ {
@@ -283,6 +438,9 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 
 		// Build tool definitions for the request.
 		toolDefinitions := self.toolRegistry.Definitions()
+		if self.promptProfile == PromptProfileCompact {
+			toolDefinitions = stripToolReturns(toolDefinitions)
+		}
 
 		// Tier 2: compress context if approaching the context window limit.
 		// Re-read models configuration for fresh values.
@@ -533,6 +691,29 @@ func (self *Runner) executeRun(ctx context.Context, parameters RunParameters, ca
 		for _, toolCall := range toolCalls {
 			tool := self.toolRegistry.Get(toolCall.Function.Name)
 			if tool == nil {
+				continue
+			}
+
+			// A deferred tool was advertised to the model by name and summary
+			// only, so it has not seen the parameter schema and any arguments
+			// it invented are unchecked. Refuse the call, load the definition
+			// for the next round, and tell the model to retry.
+			if !self.toolRegistry.IsLoaded(toolCall.Function.Name) {
+				self.toolRegistry.Activate([]string{toolCall.Function.Name})
+				result := fmt.Sprintf(
+					"error: %s was not loaded, so its parameters were not available to you and the call was not executed. "+
+						"Its definition is now loaded — call it again with arguments that match the schema.",
+					toolCall.Function.Name)
+				log.Debugf("tool call refused, definition not loaded id=%s name=%s", toolCall.ID, toolCall.Function.Name)
+				if callbacks != nil && callbacks.OnToolResult != nil {
+					callbacks.OnToolResult(toolCall.Function.Name, result)
+				}
+				toolMessage := newToolMessage(toolCall.ID, toolCall.Function.Name, result)
+				if err := self.appendConversationMessage(ctx, toolMessage); err != nil {
+					return nil, fmt.Errorf("runners: saving deferred tool refusal: %w", err)
+				}
+				history = append(history, &toolMessage)
+				deniedCount++
 				continue
 			}
 
@@ -996,10 +1177,13 @@ func (self *Runner) assembleMessages(
 ) []providers.ChatMessage {
 	_, agentName := self.resolveAgentProviderModelAndName(ctx)
 	systemPrompt := buildSystemPrompt(ctx, buildSystemPromptParameters{
-		IdentityLine: resolveIdentityLine(self.AgentID, agentName),
-		AgentID:      self.AgentID,
-		SkillPrompts: skillPrompts,
-		Mode:         systemPromptMode,
+		IdentityLine:    resolveIdentityLine(self.AgentID, agentName),
+		AgentID:         self.AgentID,
+		SkillPrompts:    skillPrompts,
+		Mode:            systemPromptMode,
+		Profile:         self.promptProfile,
+		ToolNames:       self.toolRegistry.LoadedNames(),
+		DeferredCatalog: self.toolRegistry.DeferredCatalog(),
 	})
 	messages := make([]providers.ChatMessage, 0, len(history)+1)
 	messages = append(messages, providers.ChatMessage{

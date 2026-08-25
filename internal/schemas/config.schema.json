@@ -138,6 +138,12 @@
       "type": "object",
       "title": "Tools",
       "properties": {
+        "coreTools": {
+          "type": "array",
+          "title": "Core Tools",
+          "description": "Tools whose full definitions stay in every request when the rest are deferred behind tool_search for a model with a small context window. Empty means the built-in default set.",
+          "items": { "type": "string" }
+        },
         "braveApiKey": {
           "type": "string",
           "title": "Brave API Key",
